@@ -625,8 +625,8 @@ io.on('connection', (socket) => {
     });
 });
 
-// Catch-all route to serve index.html
-app.get('*', (req, res) => {
+// Catch-all route to serve index.html (Express 5 compatible)
+app.use((req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
