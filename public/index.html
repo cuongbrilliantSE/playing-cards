@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sâm Lốc Online 2 Người - Sòng Bài Đẳng Cấp</title>
+    <meta name="description" content="Chơi game bài Sâm Lốc online 2 người thời gian thực hoặc đấu với Bot AI thông minh. Đồ họa lá bài sắc nét, âm thanh sống động.">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+    <!-- ================= 1. LOBBY / MENU SCREEN ================= -->
+    <div id="lobbyScreen" class="screen active">
+        <div class="lobby-container">
+            <div class="lobby-hero">
+                <h1 class="game-logo">SÂM LỐC ONLINE</h1>
+                <p class="game-tagline">ĐẤU TRÍ ĐỈNH CAO • CHƠI BÀI 2 NGƯỜI THỜI GIAN THỰC</p>
+            </div>
+
+            <!-- Profile Customization -->
+            <div class="profile-card">
+                <h3 style="color: #fbbf24; margin-bottom: 10px; font-size: 1.1rem;">CHỌN HÌNH ĐẠI DIỆN & TÊN</h3>
+                <div class="avatar-selector">
+                    <div class="avatar-opt selected" data-avatar="🦁">🦁</div>
+                    <div class="avatar-opt" data-avatar="🐯">🐯</div>
+                    <div class="avatar-opt" data-avatar="👑">👑</div>
+                    <div class="avatar-opt" data-avatar="🐉">🐉</div>
+                    <div class="avatar-opt" data-avatar="🦅">🦅</div>
+                    <div class="avatar-opt" data-avatar="🦊">🦊</div>
+                    <div class="avatar-opt" data-avatar="😎">😎</div>
+                </div>
+
+                <div class="input-group">
+                    <input type="text" id="playerNameInput" class="input-field" placeholder="Nhập tên của bạn..." maxlength="15" value="Cao Thủ">
+                </div>
+
+                <!-- Currency / Coin Balance Badge -->
+                <div class="lobby-balance-wrap">
+                    <span class="balance-label">SỐ DƯ TÀI KHOẢN:</span>
+                    <div class="balance-badge" id="lobbyBalanceDisplay"><span class="coin-icon"></span> 1,000 xu</div>
+                    <button id="btnClaimFreeCoins" class="btn-free-coins" title="Nhận thêm xu miễn phí" style="display: none;">🎁 Nhận 1,000 Xu Miễn Phí</button>
+                </div>
+            </div>
+
+            <!-- Game Modes Grid -->
+            <div class="modes-grid">
+                <!-- Mode 1: Create Online Room -->
+                <div class="mode-card" id="btnCreateOnlineRoom">
+                    <div class="mode-icon">🏠</div>
+                    <div class="mode-title">Tạo Phòng Mới</div>
+                    <div class="mode-desc">Tạo bàn chơi riêng và gửi mã / link mời bạn bè vào so tài 2 người.</div>
+                </div>
+
+                <!-- Mode 2: Quick Match -->
+                <div class="mode-card" id="btnQuickMatch">
+                    <div class="mode-icon">⚡</div>
+                    <div class="mode-title">Ghép Nhanh</div>
+                    <div class="mode-desc">Tự động tìm đối thủ đang chờ sẵn trên hệ thống để vào bàn ngay.</div>
+                </div>
+
+                <!-- Mode 3: Play vs Bot AI -->
+                <div class="mode-card" id="btnPlayVsBot">
+                    <div class="mode-icon">🤖</div>
+                    <div class="mode-title">Đấu với Máy (AI)</div>
+                    <div class="mode-desc">Luyện tập kỹ năng với Bot AI thông minh, không cần chờ đợi.</div>
+                </div>
+            </div>
+
+            <!-- Join with Code Box -->
+            <div class="profile-card" style="padding: 18px 25px; display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
+                <input type="text" id="joinRoomCodeInput" class="input-field" style="max-width: 220px;" placeholder="Nhập mã phòng (6 số)..." maxlength="6">
+                <button id="btnJoinOnlineRoom" class="btn-game btn-play">VÀO PHÒNG</button>
+                <button id="btnRulesModal" class="btn-game btn-utility">📖 LUẬT CHƠI</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 2. GAME ARENA SCREEN ================= -->
+    <div id="gameScreen" class="screen game-screen">
+        <!-- Game Top Header -->
+        <div class="game-header">
+            <div class="header-left">
+                <div class="room-badge">
+                    <span id="roomCodeDisplay">Phòng: 123456</span>
+                </div>
+                <button id="btnCopyLink" class="btn-icon" title="Sao chép link mời bạn bè">🔗</button>
+            </div>
+
+            <div class="header-right">
+                <button id="btnToggleEmote" class="btn-icon" title="Biểu cảm">😀</button>
+                <button id="btnSoundToggle" class="btn-icon" title="Âm thanh"><span id="soundIcon">🔊</span></button>
+                <button id="btnLeaveRoom" class="btn-icon" title="Rời bàn">🚪</button>
+            </div>
+        </div>
+
+        <!-- Casino Table Surface -->
+        <div class="casino-table">
+            <!-- Opponent Top Area -->
+            <div class="opponent-area">
+                <div class="player-info-card" id="opponentCard">
+                    <div class="player-avatar" id="opponentAvatar">⏳</div>
+                    <div class="player-name-wrap">
+                        <div class="player-name" id="opponentName">Đang chờ đối thủ...</div>
+                        <div class="player-score" id="opponentScore"><span class="coin-icon"></span> 1,000 xu</div>
+                    </div>
+                    <div class="status-tag" id="opponentStatusTag" style="display: none;"></div>
+                </div>
+
+                <!-- Opponent Card Back Fan -->
+                <div class="opponent-cards-fan" id="opponentCardsFan"></div>
+            </div>
+
+            <!-- Table Center (Played Cards Staging) -->
+            <div class="table-center">
+                <div class="center-felt-logo">SÂM LỐC</div>
+                
+                <div class="played-cards-container">
+                    <div class="played-combo-title" id="playedComboTitle" style="display: none;"></div>
+                    <div id="playedCardsPile"></div>
+                </div>
+
+                <!-- Central Banner Notification -->
+                <div class="banner-alert" id="bannerAlert"></div>
+            </div>
+
+            <!-- Player Bottom Area (Controls & Hand) -->
+            <div class="player-bottom-area">
+                <!-- Action Controls Bar -->
+                <div class="action-controls-bar">
+                    <!-- Turn Timer Countdown -->
+                    <div class="turn-timer-badge" id="turnTimerBadge">20</div>
+
+                    <!-- Báo Sâm Phase Controls -->
+                    <div id="baoSamControls" style="display: none; gap: 10px;">
+                        <button id="btnBaoSam" class="btn-game btn-sam">⚡ BÁO SÂM</button>
+                        <button id="btnKhongBaoSam" class="btn-game btn-utility">KHÔNG BÁO</button>
+                    </div>
+
+                    <!-- Playing Phase Controls -->
+                    <div id="playingControls" style="display: flex; gap: 8px;">
+                        <button id="btnPlayCards" class="btn-game btn-play">ĐÁNH BÀI</button>
+                        <button id="btnPassTurn" class="btn-game btn-pass">BỎ LƯỢT</button>
+                        <button id="btnSortHand" class="btn-game btn-utility">XẾP BÀI</button>
+                        <button id="btnHintMove" class="btn-game btn-utility">GỢI Ý</button>
+                    </div>
+                </div>
+
+                <!-- Player Hand (Card Sprites) -->
+                <div class="my-hand-container" id="myHandContainer"></div>
+
+                <!-- My Profile Badge -->
+                <div class="player-info-card" id="myProfileCard" style="margin-top: 6px; margin-bottom: 0;">
+                    <div class="player-avatar" id="myAvatar">🦁</div>
+                    <div class="player-name-wrap">
+                        <div class="player-name" id="myName">Bạn</div>
+                        <div class="player-score" id="myScore"><span class="coin-icon"></span> 1,000 xu</div>
+                    </div>
+                    <div class="status-tag" id="myStatusTag" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Emote Drawer -->
+    <div class="emote-drawer" id="emoteDrawer">
+        <button class="emote-btn" data-emote="😂">😂</button>
+        <button class="emote-btn" data-emote="🔥">🔥</button>
+        <button class="emote-btn" data-emote="👑">👑</button>
+        <button class="emote-btn" data-emote="😭">😭</button>
+        <button class="emote-btn" data-emote="😡">😡</button>
+        <button class="emote-btn" data-emote="👏">👏</button>
+        <button class="emote-btn" data-emote="💪">💪</button>
+        <button class="emote-btn" data-emote="😎">😎</button>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast-msg" id="toastMsg"></div>
+
+    <!-- ================= 3. ROUND END RESULT MODAL ================= -->
+    <div class="modal-backdrop" id="roundEndModal">
+        <div class="modal-box">
+            <h2 class="modal-title" id="roundEndTitle">🎉 KẾT THÚC VÁN ĐẤU</h2>
+            <div class="score-breakdown" id="scoreBreakdown"></div>
+            <div style="display: flex; gap: 12px; justify-content: center; margin-top: 20px;">
+                <button id="btnRematch" class="btn-game btn-play" style="flex: 1;">VÁN TIẾP THEO</button>
+                <button id="btnExitToLobby" class="btn-game btn-utility" style="flex: 1;">VỀ SẢNH</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 4. RULES GUIDE MODAL ================= -->
+    <div class="modal-backdrop" id="rulesModal">
+        <div class="modal-box" style="max-width: 650px; text-align: left; max-height: 85vh; overflow-y: auto;">
+            <h2 class="modal-title" style="text-align: center; color: #fbbf24;">LUẬT CHƠI SÂM LỐC</h2>
+            <div style="font-size: 0.92rem; line-height: 1.6; color: #cbd5e1;">
+                <p><strong style="color: #fff;">1. Chia bài:</strong> Mỗi người chơi được chia <strong>10 lá bài</strong> từ bộ 52 lá.</p>
+                <p><strong style="color: #fff;">2. Thứ tự độ lớn:</strong> <code>3 < 4 < 5 < 6 < 7 < 8 < 9 < 10 < J < Q < K < A < 2</code>.<br>
+                <em style="color: #38bdf8;">* Sâm Lốc không phân biệt chất (Bích, Cơ, Rô, Tép bằng nhau), chỉ tính độ lớn của quân bài.</em></p>
+                
+                <p><strong style="color: #fff;">3. Các bộ hợp lệ:</strong></p>
+                <ul style="padding-left: 20px; margin-bottom: 8px;">
+                    <li><strong>Lá rác:</strong> 1 lá lẻ.</li>
+                    <li><strong>Đôi:</strong> 2 lá cùng số (ví dụ: đôi 7).</li>
+                    <li><strong>Sám:</strong> 3 lá cùng số (ví dụ: sám 9).</li>
+                    <li><strong>Tứ quý:</strong> 4 lá cùng số. Chặt được <strong>1 quân 2 (Heo)</strong> hoặc Tứ quý nhỏ hơn.</li>
+                    <li><strong>Sảnh:</strong> Từ 3 lá liên tiếp trở lên. Sảnh nhỏ nhất là <code>A-2-3</code>, sảnh lớn nhất là sảnh kết thúc bằng <code>A</code> (ví dụ: <code>10-J-Q-K-A</code>). Quân 2 không nằm giữa sảnh.</li>
+                </ul>
+
+                <p><strong style="color: #fff;">4. Quy tắc đặc biệt:</strong></p>
+                <ul style="padding-left: 20px;">
+                    <li><strong>Báo Sâm:</strong> Đầu ván, nếu cảm thấy bài mạnh không ai chặn được, người chơi có thể chọn "Báo Sâm". Nếu đánh hết bài mà đối thủ không chặn được thì thắng lớn. Nếu bị chặn dù 1 lượt thì bị "Đền Sâm".</li>
+                    <li><strong>Báo 1 lá (Đánh chặn):</strong> Khi còn 1 lá bài, hệ thống sẽ cảnh báo "Báo 1". Người đi trước bắt buộc phải đánh lá bài lớn nhất của mình để chặn.</li>
+                    <li><strong>Thối 2 (Heo):</strong> Không được về nhất bằng quân 2. Nếu về bằng quân 2 sẽ bị xử phạt Thối 2.</li>
+                </ul>
+            </div>
+            <div style="text-align: center; margin-top: 20px;">
+                <button id="btnCloseRules" class="btn-game btn-play" style="min-width: 140px; margin: 0 auto;">ĐÃ HIỂU</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="js/gameRules.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/ai.js"></script>
+    <script src="js/client.js"></script>
+</body>
+</html>

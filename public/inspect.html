@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Card Sheet Inspector</title>
+    <style>
+        body { background: #1a1a2e; color: white; font-family: sans-serif; padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(13, 1fr); gap: 8px; max-width: 1400px; margin: 0 auto; }
+        .card-box {
+            background: #0f3460;
+            border-radius: 6px;
+            padding: 4px;
+            text-align: center;
+        }
+        .card {
+            width: 80px;
+            height: 140px;
+            background-image: url('images/bo-bai-52-la.png');
+            background-size: 1040px 560px; /* 13 cols * 80px, 4 rows * 140px */
+            border-radius: 4px;
+            margin: 0 auto;
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        .label { font-size: 11px; margin-top: 4px; color: #e94560; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h2>Sprite Sheet Grid Inspector (13 Columns x 4 Rows)</h2>
+    <div id="grid" class="grid"></div>
+    <script>
+        const grid = document.getElementById('grid');
+        for (let row = 0; row < 4; row++) {
+            for (let col = 0; col < 13; col++) {
+                const box = document.createElement('div');
+                box.className = 'card-box';
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.style.backgroundPosition = `-${col * 80}px -${row * 140}px`;
+                const lbl = document.createElement('div');
+                lbl.className = 'label';
+                lbl.innerText = `R${row} C${col}`;
+                box.appendChild(card);
+                box.appendChild(lbl);
+                grid.appendChild(box);
+            }
+        }
+    </script>
+</body>
+</html>

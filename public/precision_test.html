@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Card Precision Test</title>
+    <style>
+        body { background: #0f172a; color: white; font-family: sans-serif; padding: 20px; }
+        .row-container { display: flex; flex-direction: column; gap: 15px; }
+        .card-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        .card-wrapper { text-align: center; }
+        .card {
+            width: 70px;
+            height: 100px;
+            background-image: url('images/bo-bai-52-la.png');
+            background-size: 1300% 500%;
+            border-radius: 6px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .card4 {
+            background-size: 1300% 400%;
+        }
+        .title { font-size: 14px; margin-bottom: 5px; color: #38bdf8; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h2>Test 1: If 5 rows (Row 0: Spades, Row 1: Hearts, Row 2: Diamonds, Row 3: Clubs, Row 4: Back)</h2>
+    <div class="row-container" id="container5"></div>
+
+    <h2>Test 2: If 4 rows</h2>
+    <div class="row-container" id="container4"></div>
+
+    <script>
+        const suits = ['Bích ♠', 'Cơ ♥', 'Rô ♦', 'Tép ♣', 'Mặt Úp'];
+        const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+
+        // 5 rows test
+        const c5 = document.getElementById('container5');
+        for (let r = 0; r < 5; r++) {
+            const rowDiv = document.createElement('div');
+            rowDiv.className = 'card-row';
+            const t = document.createElement('div');
+            t.className = 'title';
+            t.innerText = `Row ${r} (${suits[r] || 'Extra'})`;
+            c5.appendChild(t);
+            for (let c = 0; c < 13; c++) {
+                const w = document.createElement('div');
+                w.className = 'card-wrapper';
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.style.backgroundPosition = `${(c / 12) * 100}% ${(r / 4) * 100}%`;
+                w.appendChild(card);
+                rowDiv.appendChild(w);
+            }
+            c5.appendChild(rowDiv);
+        }
+
+        // 4 rows test
+        const c4 = document.getElementById('container4');
+        for (let r = 0; r < 4; r++) {
+            const rowDiv = document.createElement('div');
+            rowDiv.className = 'card-row';
+            const t = document.createElement('div');
+            t.className = 'title';
+            t.innerText = `Row ${r} (${suits[r]})`;
+            c4.appendChild(t);
+            for (let c = 0; c < 13; c++) {
+                const w = document.createElement('div');
+                w.className = 'card-wrapper';
+                const card = document.createElement('div');
+                card.className = 'card card4';
+                card.style.backgroundPosition = `${(c / 12) * 100}% ${(r / 3) * 100}%`;
+                w.appendChild(card);
+                rowDiv.appendChild(w);
+            }
+            c4.appendChild(rowDiv);
+        }
+    </script>
+</body>
+</html>
