@@ -625,7 +625,12 @@ io.on('connection', (socket) => {
     });
 });
 
-// Restart server if already running
-server.listen(PORT, () => {
+// Catch-all route to serve index.html
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Start server
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`=== Sâm Lốc Online Server listening on port ${PORT} ===`);
 });
