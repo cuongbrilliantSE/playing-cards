@@ -2,10 +2,12 @@
 node_modules/
 package-lock.json
 
-# Environment variables
+# Environment variables and Tokens
 .env
 .env.local
 .env.*.local
+token.txt
+*token*.txt
 
 # Logs
 logs/
