@@ -13,64 +13,76 @@
     <div id="lobbyScreen" class="screen active">
         <div class="lobby-container">
             <div class="lobby-hero">
-                <h1 class="game-logo">SÂM LỐC ONLINE</h1>
-                <p class="game-tagline">ĐẤU TRÍ ĐỈNH CAO • CHƠI BÀI 2 NGƯỜI THỜI GIAN THỰC</p>
+                <h1 class="game-logo" data-text="SÂM LỐC">SÂM LỐC</h1>
+                <p class="game-tagline">Ván bài 2 người &middot; thời gian thực &middot; đấu tay đôi tới lá cuối</p>
             </div>
 
             <!-- Profile Customization -->
             <div class="profile-card">
-                <h3 style="color: #fbbf24; margin-bottom: 10px; font-size: 1.1rem;">CHỌN HÌNH ĐẠI DIỆN & TÊN</h3>
+                <h3 class="panel-heading">Chọn hình đại diện &amp; tên</h3>
                 <div class="avatar-selector">
-                    <div class="avatar-opt selected" data-avatar="🦁">🦁</div>
-                    <div class="avatar-opt" data-avatar="🐯">🐯</div>
-                    <div class="avatar-opt" data-avatar="👑">👑</div>
-                    <div class="avatar-opt" data-avatar="🐉">🐉</div>
-                    <div class="avatar-opt" data-avatar="🦅">🦅</div>
-                    <div class="avatar-opt" data-avatar="🦊">🦊</div>
-                    <div class="avatar-opt" data-avatar="😎">😎</div>
+                    <div class="avatar-opt selected" data-avatar="🦁"><span>🦁</span></div>
+                    <div class="avatar-opt" data-avatar="🐯"><span>🐯</span></div>
+                    <div class="avatar-opt" data-avatar="👑"><span>👑</span></div>
+                    <div class="avatar-opt" data-avatar="🐉"><span>🐉</span></div>
+                    <div class="avatar-opt" data-avatar="🦅"><span>🦅</span></div>
+                    <div class="avatar-opt" data-avatar="🦊"><span>🦊</span></div>
+                    <div class="avatar-opt" data-avatar="😎"><span>😎</span></div>
                 </div>
 
                 <div class="input-group">
                     <input type="text" id="playerNameInput" class="input-field" placeholder="Nhập tên của bạn..." maxlength="15" value="Cao Thủ">
                 </div>
 
-                <!-- Currency / Coin Balance Badge -->
+                <!-- Currency / Coin Balance — styled as a torn ticket stub -->
                 <div class="lobby-balance-wrap">
-                    <span class="balance-label">SỐ DƯ TÀI KHOẢN:</span>
-                    <div class="balance-badge" id="lobbyBalanceDisplay"><span class="coin-icon"></span> 1,000 xu</div>
-                    <button id="btnClaimFreeCoins" class="btn-free-coins" title="Nhận thêm xu miễn phí" style="display: none;">🎁 Nhận 1,000 Xu Miễn Phí</button>
+                    <span class="balance-label">Số dư tài khoản</span>
+                    <div class="ticket-stub" id="lobbyBalanceDisplay"><span class="coin-icon"></span><span>1,000 xu</span></div>
+                    <button id="btnClaimFreeCoins" class="btn-free-coins" title="Nhận thêm xu miễn phí" style="display: none;">Nhận 1,000 xu miễn phí</button>
                 </div>
             </div>
 
-            <!-- Game Modes Grid -->
-            <div class="modes-grid">
-                <!-- Mode 1: Create Online Room -->
-                <div class="mode-card" id="btnCreateOnlineRoom">
-                    <div class="mode-icon">🏠</div>
-                    <div class="mode-title">Tạo Phòng Mới</div>
-                    <div class="mode-desc">Tạo bàn chơi riêng và gửi mã / link mời bạn bè vào so tài 2 người.</div>
+            <!-- Game Modes — a betting board, not a feature grid -->
+            <div class="modes-board">
+                <div class="mode-row" id="btnCreateOnlineRoom">
+                    <span class="mode-icon" aria-hidden="true">
+                        <svg viewBox="0 0 32 32" fill="none"><path d="M6 15 16 6l10 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 13.5V25h14V13.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 25v-6.5h5V25" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </span>
+                    <span class="mode-text">
+                        <span class="mode-title">Tạo phòng mới</span>
+                        <span class="mode-desc">Tạo bàn chơi riêng, gửi mã hoặc link mời bạn bè vào so tài.</span>
+                    </span>
+                    <span class="mode-go" aria-hidden="true">&rarr;</span>
                 </div>
 
-                <!-- Mode 2: Quick Match -->
-                <div class="mode-card" id="btnQuickMatch">
-                    <div class="mode-icon">⚡</div>
-                    <div class="mode-title">Ghép Nhanh</div>
-                    <div class="mode-desc">Tự động tìm đối thủ đang chờ sẵn trên hệ thống để vào bàn ngay.</div>
+                <div class="mode-row" id="btnQuickMatch">
+                    <span class="mode-icon" aria-hidden="true">
+                        <svg viewBox="0 0 32 32" fill="none"><path d="M18 5 8 18h7l-2 9 11-14h-7l1-8Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </span>
+                    <span class="mode-text">
+                        <span class="mode-title">Ghép nhanh</span>
+                        <span class="mode-desc">Tự động tìm đối thủ đang chờ sẵn, vào bàn ngay lập tức.</span>
+                    </span>
+                    <span class="mode-go" aria-hidden="true">&rarr;</span>
                 </div>
 
-                <!-- Mode 3: Play vs Bot AI -->
-                <div class="mode-card" id="btnPlayVsBot">
-                    <div class="mode-icon">🤖</div>
-                    <div class="mode-title">Đấu với Máy (AI)</div>
-                    <div class="mode-desc">Luyện tập kỹ năng với Bot AI thông minh, không cần chờ đợi.</div>
+                <div class="mode-row" id="btnPlayVsBot">
+                    <span class="mode-icon" aria-hidden="true">
+                        <svg viewBox="0 0 32 32" fill="none"><rect x="7" y="12" width="18" height="13" rx="2" stroke="currentColor" stroke-width="2"/><path d="M16 12V8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="6" r="1.6" fill="currentColor"/><circle cx="12.5" cy="18" r="1.4" fill="currentColor"/><circle cx="19.5" cy="18" r="1.4" fill="currentColor"/><path d="M11 22h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    </span>
+                    <span class="mode-text">
+                        <span class="mode-title">Đấu với máy</span>
+                        <span class="mode-desc">Luyện bài với bot, không cần chờ người chơi khác.</span>
+                    </span>
+                    <span class="mode-go" aria-hidden="true">&rarr;</span>
                 </div>
             </div>
 
             <!-- Join with Code Box -->
-            <div class="profile-card" style="padding: 18px 25px; display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
-                <input type="text" id="joinRoomCodeInput" class="input-field" style="max-width: 220px;" placeholder="Nhập mã phòng (6 số)..." maxlength="6">
-                <button id="btnJoinOnlineRoom" class="btn-game btn-play">VÀO PHÒNG</button>
-                <button id="btnRulesModal" class="btn-game btn-utility">📖 LUẬT CHƠI</button>
+            <div class="join-row">
+                <input type="text" id="joinRoomCodeInput" class="input-field" style="max-width: 220px;" placeholder="Mã phòng (6 số)" maxlength="6">
+                <button id="btnJoinOnlineRoom" class="btn-game btn-play">Vào phòng</button>
+                <button id="btnRulesModal" class="btn-game btn-utility">Luật chơi</button>
             </div>
         </div>
     </div>
@@ -188,16 +200,28 @@
         </div>
     </div>
 
+    <!-- ================= 3b. LEAVE TABLE CONFIRM MODAL ================= -->
+    <div class="modal-backdrop" id="leaveConfirmModal">
+        <div class="modal-box modal-box--confirm">
+            <h2 class="modal-title">Rời bàn chơi?</h2>
+            <p class="modal-message">Ván đấu đang diễn ra sẽ kết thúc và không được tính điểm.</p>
+            <div style="display: flex; gap: 12px; justify-content: center; margin-top: 22px;">
+                <button id="btnCancelLeave" class="btn-game btn-utility" style="flex: 1;">Ở lại</button>
+                <button id="btnConfirmLeave" class="btn-game btn-pass" style="flex: 1;">Rời bàn</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ================= 4. RULES GUIDE MODAL ================= -->
     <div class="modal-backdrop" id="rulesModal">
         <div class="modal-box" style="max-width: 650px; text-align: left; max-height: 85vh; overflow-y: auto;">
-            <h2 class="modal-title" style="text-align: center; color: #fbbf24;">LUẬT CHƠI SÂM LỐC</h2>
-            <div style="font-size: 0.92rem; line-height: 1.6; color: #cbd5e1;">
-                <p><strong style="color: #fff;">1. Chia bài:</strong> Mỗi người chơi được chia <strong>10 lá bài</strong> từ bộ 52 lá.</p>
-                <p><strong style="color: #fff;">2. Thứ tự độ lớn:</strong> <code>3 < 4 < 5 < 6 < 7 < 8 < 9 < 10 < J < Q < K < A < 2</code>.<br>
-                <em style="color: #38bdf8;">* Sâm Lốc không phân biệt chất (Bích, Cơ, Rô, Tép bằng nhau), chỉ tính độ lớn của quân bài.</em></p>
+            <h2 class="modal-title" style="text-align: center; color: #c9a24a;">LUẬT CHƠI SÂM LỐC</h2>
+            <div style="font-size: 0.92rem; line-height: 1.6; color: #c9b998;">
+                <p><strong style="color: #ece2c9;">1. Chia bài:</strong> Mỗi người chơi được chia <strong>10 lá bài</strong> từ bộ 52 lá.</p>
+                <p><strong style="color: #ece2c9;">2. Thứ tự độ lớn:</strong> <code>3 < 4 < 5 < 6 < 7 < 8 < 9 < 10 < J < Q < K < A < 2</code>.<br>
+                <em style="color: #3f8264;">* Sâm Lốc không phân biệt chất (Bích, Cơ, Rô, Tép bằng nhau), chỉ tính độ lớn của quân bài.</em></p>
                 
-                <p><strong style="color: #fff;">3. Các bộ hợp lệ:</strong></p>
+                <p><strong style="color: #ece2c9;">3. Các bộ hợp lệ:</strong></p>
                 <ul style="padding-left: 20px; margin-bottom: 8px;">
                     <li><strong>Lá rác:</strong> 1 lá lẻ.</li>
                     <li><strong>Đôi:</strong> 2 lá cùng số (ví dụ: đôi 7).</li>
@@ -206,7 +230,7 @@
                     <li><strong>Sảnh:</strong> Từ 3 lá liên tiếp trở lên. Sảnh nhỏ nhất là <code>A-2-3</code>, sảnh lớn nhất là sảnh kết thúc bằng <code>A</code> (ví dụ: <code>10-J-Q-K-A</code>). Quân 2 không nằm giữa sảnh.</li>
                 </ul>
 
-                <p><strong style="color: #fff;">4. Quy tắc đặc biệt:</strong></p>
+                <p><strong style="color: #ece2c9;">4. Quy tắc đặc biệt:</strong></p>
                 <ul style="padding-left: 20px;">
                     <li><strong>Báo Sâm:</strong> Đầu ván, nếu cảm thấy bài mạnh không ai chặn được, người chơi có thể chọn "Báo Sâm". Nếu đánh hết bài mà đối thủ không chặn được thì thắng lớn. Nếu bị chặn dù 1 lượt thì bị "Đền Sâm".</li>
                     <li><strong>Báo 1 lá (Đánh chặn):</strong> Khi còn 1 lá bài, hệ thống sẽ cảnh báo "Báo 1". Người đi trước bắt buộc phải đánh lá bài lớn nhất của mình để chặn.</li>

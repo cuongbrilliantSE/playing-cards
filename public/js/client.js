@@ -528,9 +528,15 @@ function initGameControls() {
     document.getElementById('btnHintMove').addEventListener('click', handleHintMove);
 
     document.getElementById('btnLeaveRoom').addEventListener('click', () => {
-        if (confirm('Bạn có chắc chắn muốn rời bàn chơi?')) {
-            window.location.href = window.location.pathname;
-        }
+        document.getElementById('leaveConfirmModal').classList.add('show');
+    });
+
+    document.getElementById('btnCancelLeave').addEventListener('click', () => {
+        document.getElementById('leaveConfirmModal').classList.remove('show');
+    });
+
+    document.getElementById('btnConfirmLeave').addEventListener('click', () => {
+        window.location.href = window.location.pathname;
     });
 
     document.getElementById('btnCopyLink').addEventListener('click', () => {
