@@ -1152,3 +1152,108 @@ body {
     }
 }
 
+#roundEndModal .modal-box {
+    max-width: 660px;
+    padding: 30px 24px;
+}
+
+/* ================= REVEALED HANDS (NGỬA BÀI) ================= */
+.revealed-hands-container {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: rgba(13, 8, 6, 0.85);
+    border: 1px solid rgba(201, 162, 74, 0.35);
+    border-radius: 12px;
+    padding: 14px 16px;
+    box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.6);
+}
+
+.revealed-hand-block {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.revealed-hand-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+.revealed-cards-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    align-items: center;
+    padding: 6px 0;
+    min-height: 86px;
+}
+
+.mini-card-item {
+    width: 60px;
+    height: 85px;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 6px;
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.2);
+    transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2), box-shadow 0.2s;
+    flex-shrink: 0;
+}
+
+.mini-card-item:hover {
+    transform: translateY(-8px) scale(1.22);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.9), 0 0 14px rgba(251, 191, 36, 0.8);
+    border-color: var(--gold);
+    z-index: 10;
+}
+
+.card-revealed-leaf {
+    width: 68px;
+    height: 96px;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 6px;
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.75);
+    border: 1.5px solid rgba(201, 162, 74, 0.6);
+    margin-left: -32px;
+    transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2), box-shadow 0.25s;
+    flex-shrink: 0;
+}
+
+.card-revealed-leaf:first-child {
+    margin-left: 0;
+}
+
+.card-revealed-leaf:hover {
+    transform: translateY(-14px) scale(1.28) !important;
+    box-shadow: 0 14px 26px rgba(0, 0, 0, 0.9), 0 0 16px rgba(251, 191, 36, 0.9);
+    border-color: var(--gold-bright);
+    z-index: 25;
+}
+
+@media (max-width: 600px) {
+    #roundEndModal .modal-box {
+        max-width: 95vw;
+        padding: 20px 14px;
+    }
+
+    .mini-card-item {
+        width: 48px;
+        height: 68px;
+    }
+
+    .card-revealed-leaf {
+        width: 52px;
+        height: 74px;
+        margin-left: -24px;
+    }
+}
+

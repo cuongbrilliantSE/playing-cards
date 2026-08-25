@@ -422,7 +422,7 @@ class GameRoom {
             points = 15;
             winnerChange = -15;
             loserChange = 15;
-            penaltyDetails.push(`⚠️ ${winner.name} VỀ BẰNG QUÂN 2 NÊN BỊ PHẠT THỐI 2 (-15 điểm)!`);
+            penaltyDetails = [`⚠️ ${winner.name} VỀ BẰNG QUÂN 2 (BỊ PHẠT THỐI 2 & XỬ THUA) (-15 điểm)!`];
         }
 
         const effectiveWinnerSeat = isThoiHeoEnd ? 1 - winnerSeat : winnerSeat;

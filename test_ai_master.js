@@ -128,4 +128,24 @@ test('Master AI discharges 2 before final card to avoid thối Heo penalty', () 
     }
 });
 
+// 7. Test Anti-Pig-Rot Safeguard on Follow (2 cards left)
+test('Master AI plays 2 on follow when holding 2 cards [8, 2] on table 5 to avoid stranding 2', () => {
+    const hand = [createCard('8'), createCard('2')];
+    const tableCombo = rules.evaluateCombination([createCard('5')]);
+    const move = bot.decideMove(hand, tableCombo, 4, false);
+    if (!move || move[0].rank.value !== '2') {
+        throw new Error(`Expected Bot to play 2 to take control, but played ${move ? move[0].rank.value : 'Pass'}`);
+    }
+});
+
+// 8. Test Never Finish With 2 on Follow
+test('Master AI passes when holding only a lone 2 on table 5 instead of committing suicide by finishing with 2', () => {
+    const hand = [createCard('2')];
+    const tableCombo = rules.evaluateCombination([createCard('5')]);
+    const move = bot.decideMove(hand, tableCombo, 4, false);
+    if (move !== null) {
+        throw new Error(`Expected Bot to Pass on lone 2, but played ${move[0].rank.value}`);
+    }
+});
+
 console.log('\n🎉 ALL MASTER AI UNIT TESTS PASSED FLAWLESSLY!\n');

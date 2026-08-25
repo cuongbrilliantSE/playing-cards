@@ -37,7 +37,8 @@ let gameState = {
     myScore: 1000,
     turnTimeLeft: 20,
     phaseTimeLeft: 15,
-    timerInterval: null
+    timerInterval: null,
+    opponentRevealedHand: []
 };
 
 function updateStatsDisplay() {
@@ -389,6 +390,13 @@ function connectSocket() {
         });
 
         socket.on('round_end', (data) => {
+            if (data.players) {
+                const oppP = data.players.find(p => p.seat !== gameState.mySeat);
+                if (oppP && oppP.hand) {
+                    gameState.opponentRevealedHand = oppP.hand;
+                }
+            }
+            renderOpponent();
             showRoundEndModal(data);
         });
 
@@ -476,6 +484,7 @@ function startSoloBotMode() {
 
 function startSoloGame() {
     gameState.selectedCardIds.clear();
+    gameState.opponentRevealedHand = [];
     const deck = shuffleDeck(createDeck());
     gameState.myHand = sortCardsByPower(deck.slice(0, 10));
     soloInternal.botHand = sortCardsByPower(deck.slice(10, 20));
@@ -687,7 +696,8 @@ function handleSoloFinish(winnerSeat, lastCombo) {
     }
 
     if (isThoiHeo) {
-        details.push(`⚠️ ${isWinnerMe ? 'BẠN' : botAI.name} VỀ BẰNG QUÂN 2 NÊN BỊ PHẠT THỐI 2 (-15 xu)!`);
+        points = 15;
+        details = [`⚠️ ${isWinnerMe ? 'BẠN' : botAI.name} VỀ BẰNG QUÂN 2 (BỊ PHẠT THỐI 2 & XỬ THUA) (-15 xu)!`];
         if (isWinnerMe) {
             gameState.myScore -= 15;
             gameState.opponent.score += 15;
@@ -706,6 +716,10 @@ function handleSoloFinish(winnerSeat, lastCombo) {
     }
 
     const effectiveWinnerSeat = isThoiHeo ? 1 - winnerSeat : winnerSeat;
+    if (soloInternal.botHand) {
+        gameState.opponentRevealedHand = soloInternal.botHand;
+    }
+    renderOpponent();
     showRoundEndModal({
         winnerSeat: effectiveWinnerSeat,
         winnerName: effectiveWinnerSeat === 0 ? myProfile.name : botAI.name,
@@ -1000,8 +1014,34 @@ function renderOpponent() {
         statusTagEl.style.display = 'none';
     }
 
-    // Render Card Back Fan
+    // Render Card Back Fan or Revealed Cards
     fanEl.innerHTML = '';
+
+    if (gameState.status === 'ROUND_END' && gameState.opponentRevealedHand && gameState.opponentRevealedHand.length > 0) {
+        const stackDiv = document.createElement('div');
+        stackDiv.className = 'card-back-stack';
+        stackDiv.style.paddingLeft = '18px';
+
+        gameState.opponentRevealedHand.forEach((card, idx) => {
+            const leaf = document.createElement('div');
+            leaf.className = 'card-revealed-leaf';
+            leaf.style.backgroundImage = `url('${card.image || 'cards/' + card.suit.key + '-' + card.rank.value + '.png'}')`;
+            const rot = (idx - gameState.opponentRevealedHand.length / 2) * 4;
+            leaf.style.transform = `rotate(${rot}deg) translateY(${Math.abs(rot) * 0.6}px)`;
+            leaf.title = `${card.rank.value} ${card.suit.name}`;
+            stackDiv.appendChild(leaf);
+        });
+
+        const countBadge = document.createElement('div');
+        countBadge.className = 'opponent-cards-count';
+        countBadge.style.background = '#0284c7';
+        countBadge.innerText = `Ngửa bài: ${gameState.opponentRevealedHand.length} lá`;
+        stackDiv.appendChild(countBadge);
+
+        fanEl.appendChild(stackDiv);
+        return;
+    }
+
     const count = gameState.opponent.cardCount || 0;
     const stackDiv = document.createElement('div');
     stackDiv.className = 'card-back-stack';
@@ -1096,18 +1136,119 @@ function renderMyHand() {
         }
 
         cardEl.addEventListener('click', () => {
-            if (gameState.selectedCardIds.has(card.id)) {
-                gameState.selectedCardIds.delete(card.id);
-            } else {
-                gameState.selectedCardIds.add(card.id);
-            }
-            sounds.playCardSelect();
-            renderMyHand();
+            handleCardClick(card);
         });
 
         wrapper.appendChild(cardEl);
         container.appendChild(wrapper);
     });
+}
+
+function handleCardClick(card) {
+    if (gameState.selectedCardIds.has(card.id)) {
+        if (gameState.selectedCardIds.size > 1) {
+            // Clicked an already-selected card while multiple cards are selected:
+            // Isolate to ONLY this single card
+            gameState.selectedCardIds.clear();
+            gameState.selectedCardIds.add(card.id);
+        } else {
+            // Only this card was selected -> Deselect it
+            gameState.selectedCardIds.delete(card.id);
+        }
+    } else {
+        // Card is not selected yet
+        if (gameState.selectedCardIds.size === 0) {
+            // Smart auto-select combo (Straight, Pair, Triple, Quad, or Playable Beat Combo)
+            const smartComboIds = findSmartComboForCard(card, gameState.myHand, gameState.tableCombo);
+            if (smartComboIds && smartComboIds.length > 1) {
+                smartComboIds.forEach(id => gameState.selectedCardIds.add(id));
+            } else {
+                gameState.selectedCardIds.add(card.id);
+            }
+        } else {
+            // Add to existing custom selection
+            gameState.selectedCardIds.add(card.id);
+        }
+    }
+    sounds.playCardSelect();
+    renderMyHand();
+}
+
+function findSmartComboForCard(clickedCard, handCards, tableCombo) {
+    if (!clickedCard || !handCards || handCards.length === 0) return null;
+
+    // 1. If table combo is active, check playable combinations that beat table and contain clickedCard
+    if (tableCombo && tableCombo.type !== COMBO_TYPES.INVALID) {
+        const playable = findPlayableCombinations(handCards, tableCombo);
+        const matching = playable.filter(m => m.some(c => c.id === clickedCard.id));
+        if (matching.length > 0) {
+            matching.sort((a, b) => {
+                const evA = evaluateCombination(a);
+                const evB = evaluateCombination(b);
+                return evA.power - evB.power;
+            });
+            return matching[0].map(c => c.id);
+        }
+    }
+
+    // 2. If table is empty (Leading) or no matching playable response:
+    // Check Straights first (ranks 3..A)
+    const nonTwos = handCards.filter(c => c.rank.value !== '2');
+    const sorted = sortCardsByPower(nonTwos);
+
+    let bestStraight = null;
+    for (let len = Math.min(10, sorted.length); len >= 3; len--) {
+        const straightsOfLen = findStraightsOfLength(sorted, len);
+        const containing = straightsOfLen.filter(st => st.some(c => c.id === clickedCard.id));
+        if (containing.length > 0) {
+            bestStraight = containing[0].map(c => c.id);
+            break; // Pick longest straight
+        }
+    }
+
+    // Check Same-Rank Combos (Quad, Triple, Pair)
+    const sameRankCards = handCards.filter(c => c.rank.value === clickedCard.rank.value);
+    const sameRankIds = sameRankCards.length >= 2 ? sameRankCards.map(c => c.id) : null;
+
+    if (sameRankCards.length === 4) {
+        return sameRankIds;
+    }
+    if (bestStraight) {
+        return bestStraight;
+    }
+    if (sameRankIds) {
+        return sameRankIds;
+    }
+
+    return null;
+}
+
+function findStraightsOfLength(sortedCards, len) {
+    const results = [];
+    const rankMap = new Map();
+    sortedCards.forEach(c => {
+        if (!rankMap.has(c.rank.power)) rankMap.set(c.rank.power, []);
+        rankMap.get(c.rank.power).push(c);
+    });
+
+    const uniquePowers = Array.from(rankMap.keys()).sort((a, b) => a - b);
+    for (let i = 0; i <= uniquePowers.length - len; i++) {
+        let isConsecutive = true;
+        for (let j = 0; j < len - 1; j++) {
+            if (uniquePowers[i + j + 1] !== uniquePowers[i + j] + 1) {
+                isConsecutive = false;
+                break;
+            }
+        }
+        if (isConsecutive) {
+            const combo = [];
+            for (let j = 0; j < len; j++) {
+                combo.push(rankMap.get(uniquePowers[i + j])[0]);
+            }
+            results.push(combo);
+        }
+    }
+    return results;
 }
 
 function renderControls() {
@@ -1206,6 +1347,82 @@ function showRoundEndModal(data) {
         <span style="color: #fbbf24; font-weight: 800; font-size: 1.15rem;"><span class="coin-icon"></span> ${gameState.myScore.toLocaleString()} xu</span>
     `;
     breakdown.appendChild(balanceItem);
+
+    // Render Revealed Hands (Ngửa bài đối thủ & người chơi)
+    if (data.players && data.players.length > 0) {
+        const opp = data.players.find(p => p.seat !== gameState.mySeat);
+        const me = data.players.find(p => p.seat === gameState.mySeat);
+
+        const handsWrapper = document.createElement('div');
+        handsWrapper.className = 'revealed-hands-container';
+
+        // Opponent's Hand
+        if (opp) {
+            const oppBlock = document.createElement('div');
+            oppBlock.className = 'revealed-hand-block';
+            
+            const isOppEndOnTwo = data.isThoiHeoEnd && (!opp.hand || opp.hand.length === 0);
+
+            const oppHeader = document.createElement('div');
+            oppHeader.className = 'revealed-hand-header';
+            const oppCardCount = opp.hand ? opp.hand.length : 0;
+            oppHeader.innerHTML = `
+                <span style="color: #38bdf8;">🃏 Bài đối thủ (${opp.name || 'Đối thủ'}):</span>
+                <span style="color: #94a3b8;">${oppCardCount > 0 ? oppCardCount + ' lá còn lại' : (isOppEndOnTwo ? 'Về bằng 2 (Thua)' : 'Đã hết bài')}</span>
+            `;
+            oppBlock.appendChild(oppHeader);
+
+            const oppRow = document.createElement('div');
+            oppRow.className = 'revealed-cards-row';
+            if (opp.hand && opp.hand.length > 0) {
+                opp.hand.forEach(c => {
+                    const mini = document.createElement('div');
+                    mini.className = 'mini-card-item';
+                    mini.style.backgroundImage = `url('${c.image || 'cards/' + c.suit.key + '-' + c.rank.value + '.png'}')`;
+                    mini.title = `${c.rank.value} ${c.suit.name}`;
+                    oppRow.appendChild(mini);
+                });
+            } else {
+                if (isOppEndOnTwo) {
+                    oppRow.innerHTML = `<span style="font-size: 0.88rem; color: #ef4444; font-style: italic; font-weight: 700;">⚠️ Đã đánh hết bài nhưng VỀ BẰNG QUÂN 2 (Bị xử thua & phạt thối 2)</span>`;
+                } else {
+                    oppRow.innerHTML = `<span style="font-size: 0.85rem; color: #4ade80; font-style: italic;">(Đã đánh hết 10 lá - Về nhất)</span>`;
+                }
+            }
+            oppBlock.appendChild(oppRow);
+            handsWrapper.appendChild(oppBlock);
+        }
+
+        // My Remaining Hand (if lost with cards remaining or won due to opponent's thối 2)
+        if (me && me.hand && me.hand.length > 0) {
+            const myBlock = document.createElement('div');
+            myBlock.className = 'revealed-hand-block';
+            myBlock.style.borderTop = '1px dashed rgba(255, 255, 255, 0.15)';
+            myBlock.style.paddingTop = '8px';
+
+            const myHeader = document.createElement('div');
+            myHeader.className = 'revealed-hand-header';
+            myHeader.innerHTML = `
+                <span style="color: #fbbf24;">🃏 Bài của bạn còn lại:</span>
+                <span style="color: #94a3b8;">${me.hand.length} lá ${data.isThoiHeoEnd && isMeWinner ? '(Thắng do đối thủ thối 2)' : ''}</span>
+            `;
+            myBlock.appendChild(myHeader);
+
+            const myRow = document.createElement('div');
+            myRow.className = 'revealed-cards-row';
+            me.hand.forEach(c => {
+                const mini = document.createElement('div');
+                mini.className = 'mini-card-item';
+                mini.style.backgroundImage = `url('${c.image || 'cards/' + c.suit.key + '-' + c.rank.value + '.png'}')`;
+                mini.title = `${c.rank.value} ${c.suit.name}`;
+                myRow.appendChild(mini);
+            });
+            myBlock.appendChild(myRow);
+            handsWrapper.appendChild(myBlock);
+        }
+
+        breakdown.appendChild(handsWrapper);
+    }
 
     if (isSoloMode) {
         const warningItem = document.createElement('div');

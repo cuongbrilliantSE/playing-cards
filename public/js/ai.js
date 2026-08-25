@@ -240,9 +240,16 @@ class SamLocAI {
      * Decide the best move given current table state
      */
     decideMove(handCards, tableCombo, opponentCardCount = 10, isOpponentBaoMot = false) {
-        const playable = _findPlayableCombinations(handCards, tableCombo);
+        let playable = _findPlayableCombinations(handCards, tableCombo);
         if (!playable || playable.length === 0) {
             return null; // Must pass
+        }
+
+        // NEVER FINISH WITH 2 ON FOLLOW (Luật Sâm Lốc: Cấm về bằng quân 2):
+        // If a move contains a 2 and would empty our hand, filter it out completely so we never commit suicide by finishing with 2!
+        playable = playable.filter(m => !(m.length === handCards.length && m.some(c => c.rank.value === '2')));
+        if (playable.length === 0) {
+            return null; // Pass instead of losing to thối 2
         }
 
         const sortedHand = _sortCardsByPower(handCards);
@@ -439,9 +446,33 @@ class SamLocAI {
         const nonBreakingMoves = scoredMoves.filter(m => !m.breaksHighValue);
         const candidateMoves = nonBreakingMoves.length > 0 ? nonBreakingMoves : scoredMoves;
 
+        // 1. NEVER FINISH WITH 2 ON FOLLOW:
+        // If playing this move empties our hand and contains a 2, pass instead to avoid Thối 2 penalty!
+        const safeCandidates = candidateMoves.filter(m => {
+            if (m.move.length === handCards.length && m.has2) {
+                return false;
+            }
+            return true;
+        });
+
+        if (safeCandidates.length === 0) {
+            return null; // Pass
+        }
+
+        // 2. CRITICAL ANTI-PIG-ROT ON FOLLOW:
+        // If Bot has <= 3 cards and holds a 2 and another card:
+        // Never play the non-2 card and leave 2 stranded as the lone remaining card!
+        // If 2 can beat the table single, play 2 NOW to take control, keeping the non-2 as the winning finisher!
+        if (handCards.length <= 3 && handCards.some(c => c.rank.value === '2') && tableCombo.type === _COMBO_TYPES.SINGLE) {
+            const twoMove = safeCandidates.find(m => m.has2);
+            if (twoMove) {
+                return twoMove.move;
+            }
+        }
+
         // If hand is large (> 5 cards) and table is low (< 10), do not waste 2 unless necessary
         if (handCards.length > 5 && tableCombo.power < 10) {
-            const non2 = candidateMoves.filter(m => !m.has2);
+            const non2 = safeCandidates.filter(m => !m.has2);
             if (non2.length > 0) {
                 non2.sort((a, b) => a.power - b.power);
                 return non2[0].move;
@@ -453,8 +484,8 @@ class SamLocAI {
         }
 
         // Sort by lowest power to conserve strength
-        candidateMoves.sort((a, b) => a.power - b.power);
-        return candidateMoves[0].move;
+        safeCandidates.sort((a, b) => a.power - b.power);
+        return safeCandidates[0].move;
     }
 }
 
