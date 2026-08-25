@@ -228,7 +228,9 @@ function performAuth() {
                 socket.off('profile_loaded', onProfileLoaded);
                 socket.off('action_error', onActionError);
                 resolve();
-                performAuth();
+                setTimeout(() => {
+                    performAuth();
+                }, 250);
                 return;
             }
             socket.off('profile_loaded', onProfileLoaded);
@@ -421,9 +423,14 @@ function startOnlineMode(action, code = '') {
     if (isAuthComplete) {
         emitAction();
     } else {
-        showToast('Đang kết nối hệ thống, vui lòng đợi...');
-        // Wait for profile_loaded to run our action
+        const toastTimer = setTimeout(() => {
+            showToast('Đang kết nối hệ thống, vui lòng đợi...');
+        }, 300);
+
         socket.once('profile_loaded', () => {
+            clearTimeout(toastTimer);
+            const toastEl = document.getElementById('toastMsg');
+            if (toastEl) toastEl.classList.remove('show');
             emitAction();
         });
     }

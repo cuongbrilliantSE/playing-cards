@@ -543,7 +543,8 @@ io.on('connection', (socket) => {
         if (rateLimitWhitelist.includes(eventName)) {
             const now = Date.now();
             const lastCall = lastCallTimes.get(eventName) || 0;
-            if (now - lastCall < 200) {
+            const threshold = eventName === 'auth' ? 50 : 200;
+            if (now - lastCall < threshold) {
                 const lastViol = socket.lastViolationTime || 0;
                 if (now - lastViol < 1000) {
                     socket.violationCount++;
