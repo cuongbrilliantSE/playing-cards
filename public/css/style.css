@@ -1074,3 +1074,81 @@ body {
         font-size: 0.85rem;
     }
 }
+
+/* ================= PLAYER STATISTICS & RANKS (Sơn Mài Style) ================= */
+.profile-stats {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px dashed rgba(201, 162, 74, 0.25);
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+.stat-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(201, 162, 74, 0.1);
+    border-radius: 3px;
+    padding: 10px 6px;
+    transition: border-color 0.2s, background-color 0.2s;
+}
+
+.stat-box:hover {
+    border-color: rgba(201, 162, 74, 0.3);
+    background: rgba(201, 162, 74, 0.03);
+}
+
+.stat-label {
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+    margin-bottom: 6px;
+    font-weight: 500;
+    text-transform: uppercase;
+    font-family: 'Be Vietnam Pro', sans-serif;
+    letter-spacing: 0.5px;
+}
+
+.stat-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--eggshell);
+}
+
+/* Rank special stylings (A6 Rank Table) */
+.stat-value.rank-tập-sự {
+    color: var(--ink-dim);
+}
+
+.stat-value.rank-thường-dân {
+    color: var(--eggshell);
+}
+
+.stat-value.rank-cao-thủ {
+    color: var(--gold-bright);
+    text-shadow: 0 0 8px rgba(236, 207, 135, 0.4);
+}
+
+.stat-value.rank-kiện-tướng {
+    color: #4ade80; /* Jade Green */
+    text-shadow: 0 0 8px rgba(74, 222, 128, 0.4);
+}
+
+.stat-value.rank-thần-bài {
+    color: var(--son-red-bright);
+    text-shadow: 0 0 10px rgba(194, 60, 38, 0.6);
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 900;
+}
+
+@media (max-width: 480px) {
+    .profile-stats {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+}
+

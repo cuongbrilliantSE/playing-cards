@@ -3,6 +3,10 @@ const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
 const rules = require('./public/js/gameRules.js');
+const db = require('./db.js');
+
+db.initDb();
+
 
 const app = express();
 const server = http.createServer(app);
@@ -31,6 +35,7 @@ class GameRoom {
         this.players = [
             {
                 id: hostSocket.id,
+                playerId: hostSocket.playerId,
                 name: hostName || 'Người chơi 1',
                 avatar: hostAvatar || '🦁',
                 seat: 0,
@@ -58,6 +63,7 @@ class GameRoom {
         if (this.players.length >= 2) return false;
         this.players.push({
             id: socket.id,
+            playerId: socket.playerId,
             name: name || 'Người chơi 2',
             avatar: avatar || '🐯',
             seat: 1,
@@ -70,6 +76,7 @@ class GameRoom {
         });
         return true;
     }
+
 
     removePlayer(socketId) {
         const idx = this.players.findIndex(p => p.id === socketId);
@@ -390,34 +397,27 @@ class GameRoom {
             }
         }
 
+        let winnerChange = points;
+        let loserChange = -points;
         if (isThoiHeoEnd) {
-            // Winner gets penalty for finishing on 2!
-            winner.score -= 15;
-            loser.score += 15;
+            points = 15;
+            winnerChange = -15;
+            loserChange = 15;
             penaltyDetails.push(`⚠️ ${winner.name} VỀ BẰNG QUÂN 2 NÊN BỊ PHẠT THỐI 2 (-15 điểm)!`);
-        } else {
-            winner.score += points;
-            loser.score -= points;
         }
 
-        io.to(this.code).emit('round_end', {
-            winnerSeat,
-            winnerName: winner.name,
+        const effectiveWinnerSeat = isThoiHeoEnd ? 1 - winnerSeat : winnerSeat;
+        this.lastWinnerSeat = effectiveWinnerSeat;
+
+        this.saveAndEmitRoundEnd(winner, loser, winnerChange, loserChange, (winP, loseP) => ({
+            winnerSeat: effectiveWinnerSeat,
+            winnerName: this.getPlayerBySeat(effectiveWinnerSeat).name,
             points,
             isSamWin,
             isDenSam,
             isThoiHeoEnd,
-            penaltyDetails,
-            players: this.players.map(p => ({
-                id: p.id,
-                seat: p.seat,
-                name: p.name,
-                score: p.score,
-                hand: p.hand
-            }))
-        });
-
-        this.broadcastState();
+            penaltyDetails
+        }));
     }
 
     endRoundWithInstantWin(winnerSeat, winInfo) {
@@ -429,26 +429,56 @@ class GameRoom {
         const loser = this.getPlayerBySeat(1 - winnerSeat);
         const points = winInfo.multiplier || 20;
 
-        winner.score += points;
-        loser.score -= points;
-
-        io.to(this.code).emit('round_end', {
+        this.saveAndEmitRoundEnd(winner, loser, points, -points, (winP, loseP) => ({
             winnerSeat,
-            winnerName: winner.name,
+            winnerName: winP.name,
             points,
             isInstantWin: true,
             instantWinName: winInfo.name,
-            penaltyDetails: [`✨ TỚI TRẮNG: ${winInfo.name} (+${points} điểm)`],
-            players: this.players.map(p => ({
+            penaltyDetails: [`✨ TỚI TRẮNG: ${winInfo.name} (+${points} điểm)`]
+        }));
+    }
+
+    saveAndEmitRoundEnd(winner, loser, winnerChange, loserChange, buildPayload) {
+        const isWinnerRealWin = winnerChange >= 0;
+        Promise.all([
+            db.updateResult(winner.playerId, isWinnerRealWin, winnerChange).catch(err => {
+                console.error(`Winner DB write failed:`, err);
+                return null;
+            }),
+            db.updateResult(loser.playerId, !isWinnerRealWin, loserChange).catch(err => {
+                console.error(`Loser DB write failed:`, err);
+                return null;
+            })
+        ]).then(([winnerProfile, loserProfile]) => {
+            if (winnerProfile) {
+                winner.score = winnerProfile.score;
+            } else {
+                winner.score = Math.max(0, winner.score + winnerChange);
+            }
+            if (loserProfile) {
+                loser.score = loserProfile.score;
+            } else {
+                loser.score = Math.max(0, loser.score + loserChange);
+            }
+
+            const basePayload = buildPayload(winner, loser);
+            basePayload.players = this.players.map(p => ({
                 id: p.id,
                 seat: p.seat,
                 name: p.name,
                 score: p.score,
                 hand: p.hand
-            }))
-        });
+            }));
 
-        this.broadcastState();
+            io.to(this.code).emit('round_end', basePayload);
+            this.broadcastState();
+
+            const winSocket = io.sockets.sockets.get(winner.id);
+            if (winSocket && winnerProfile) winSocket.emit('profile_loaded', { playerId: winner.playerId, profile: winnerProfile });
+            const loseSocket = io.sockets.sockets.get(loser.id);
+            if (loseSocket && loserProfile) loseSocket.emit('profile_loaded', { playerId: loser.playerId, profile: loserProfile });
+        }).catch(err => console.error('Error saving round end results:', err));
     }
 
     broadcastState() {
@@ -485,62 +515,279 @@ class GameRoom {
     }
 }
 
+function createAndJoinRoom(socket, profile) {
+    const code = generateRoomCode();
+    const room = new GameRoom(code, socket, profile.name, profile.avatar, profile.score);
+    rooms.set(code, room);
+    socket.join(code);
+    socket.emit('room_created', { roomCode: code, seat: 0 });
+    room.broadcastState();
+    console.log(`Room created: ${code} by ${profile.name} (Score: ${room.players[0].score})`);
+    return room;
+}
+
+const playerSockets = new Map();
+
 // Socket.IO Connection Handler
 io.on('connection', (socket) => {
     console.log(`Player connected: ${socket.id}`);
 
-    socket.on('create_room', ({ playerName, avatar, score }) => {
-        const code = generateRoomCode();
-        const room = new GameRoom(code, socket, playerName, avatar, score);
-        rooms.set(code, room);
-        socket.join(code);
-        socket.emit('room_created', { roomCode: code, seat: 0 });
-        room.broadcastState();
-        console.log(`Room created: ${code} by ${playerName} (Score: ${room.players[0].score})`);
-    });
+    // Rate limiting per socket middleware
+    socket.violationCount = 0;
+    socket.lastViolationTime = 0;
+    const rateLimitWhitelist = ['auth', 'claim_free_coins', 'create_room', 'join_room', 'quick_match', 'update_profile'];
+    const lastCallTimes = new Map();
 
-    socket.on('join_room', ({ roomCode, playerName, avatar, score }) => {
-        const room = rooms.get(roomCode);
-        if (!room) {
-            socket.emit('join_error', { msg: 'Phòng không tồn tại hoặc mã phòng không đúng!' });
-            return;
-        }
-        if (room.players.length >= 2) {
-            socket.emit('join_error', { msg: 'Phòng đã đủ 2 người chơi!' });
-            return;
-        }
+    socket.use((packet, next) => {
+        const eventName = packet[0];
+        if (rateLimitWhitelist.includes(eventName)) {
+            const now = Date.now();
+            const lastCall = lastCallTimes.get(eventName) || 0;
+            if (now - lastCall < 200) {
+                const lastViol = socket.lastViolationTime || 0;
+                if (now - lastViol < 1000) {
+                    socket.violationCount++;
+                } else {
+                    socket.violationCount = 1;
+                }
+                socket.lastViolationTime = now;
 
-        const joined = room.addPlayer(socket, playerName, avatar, score);
-        if (joined) {
-            socket.join(roomCode);
-            socket.emit('room_joined', { roomCode, seat: 1 });
-            console.log(`${playerName} joined room ${roomCode}`);
-            room.startNewGame();
-        }
-    });
+                if (socket.violationCount > 15) {
+                    console.warn(`Socket ${socket.id} kicked for extreme spamming of ${eventName}`);
+                    socket.disconnect(true);
+                    return;
+                }
 
-    socket.on('quick_match', ({ playerName, avatar, score }) => {
-        // Find available room with 1 player waiting
-        let targetRoom = null;
-        for (const [code, r] of rooms.entries()) {
-            if (r.players.length === 1 && r.status === 'WAITING') {
-                targetRoom = r;
-                break;
+                socket.emit('rate_limit_exceeded', { msg: 'Bạn đang thao tác quá nhanh, vui lòng thử lại sau.' });
+                return; // Drop packet (no-op)
             }
+            lastCallTimes.set(eventName, now);
         }
+        
+        // Reset violation counter on a valid event after 3 seconds
+        const now = Date.now();
+        if (now - socket.lastViolationTime > 3000) {
+            socket.violationCount = 0;
+        }
+        next();
+    });
 
-        if (targetRoom) {
-            targetRoom.addPlayer(socket, playerName, avatar, score);
-            socket.join(targetRoom.code);
-            socket.emit('room_joined', { roomCode: targetRoom.code, seat: 1 });
-            targetRoom.startNewGame();
-        } else {
-            const code = generateRoomCode();
-            const room = new GameRoom(code, socket, playerName, avatar, score);
-            rooms.set(code, room);
-            socket.join(code);
-            socket.emit('room_created', { roomCode: code, seat: 0 });
-            room.broadcastState();
+    // Auth handler (A1 & A2)
+    socket.on('auth', async ({ playerId, playerSecret }) => {
+        try {
+            if (!playerId) {
+                const newPlayer = await db.createPlayer();
+                playerId = newPlayer.id;
+                playerSecret = newPlayer.secret;
+                socket.playerId = playerId;
+                
+                playerSockets.set(playerId, socket);
+                socket.emit('profile_loaded', {
+                    playerId,
+                    playerSecret,
+                    profile: newPlayer.profile
+                });
+            } else {
+                const isValid = await db.verifySecret(playerId, playerSecret);
+                if (!isValid) {
+                    socket.emit('action_error', { msg: 'Mã xác thực không hợp lệ!' });
+                    return;
+                }
+                
+                socket.playerId = playerId;
+                
+                // Duplicate login handling (Kick tab cũ)
+                const oldSocket = playerSockets.get(playerId);
+                if (oldSocket && oldSocket.id !== socket.id) {
+                    oldSocket.isDuplicateKick = true; // Mark to skip duplicate offline trigger (Issue 3)
+                    oldSocket.emit('kicked_by_duplicate');
+                    oldSocket.disconnect(true);
+                }
+                
+                playerSockets.set(playerId, socket);
+                const profile = await db.getPlayer(playerId);
+                socket.emit('profile_loaded', {
+                    playerId,
+                    playerSecret,
+                    profile
+                });
+
+                // Active game reconnection recovery check (Issue 2)
+                let activeRoom = null;
+                let playerSeat = -1;
+                for (const [code, room] of rooms.entries()) {
+                    const idx = room.players.findIndex(pl => pl.playerId === playerId);
+                    if (idx !== -1) {
+                        activeRoom = room;
+                        playerSeat = idx;
+                        break;
+                    }
+                }
+
+                if (activeRoom && (activeRoom.status === 'PLAYING' || activeRoom.status === 'BAO_SAM' || activeRoom.status === 'ROUND_END')) {
+                    if (activeRoom.reconnectTimeout) {
+                        clearTimeout(activeRoom.reconnectTimeout);
+                        activeRoom.reconnectTimeout = null;
+                    }
+
+                    const pInRoom = activeRoom.players[playerSeat];
+                    pInRoom.id = socket.id; // bind new socket ID to player
+                    pInRoom.isOffline = false;
+
+                    socket.join(activeRoom.code);
+
+                    const opponent = activeRoom.players.find(pl => pl.playerId !== playerId);
+                    if (opponent) {
+                        io.to(opponent.id).emit('opponent_reconnected', { playerName: pInRoom.name });
+                    }
+
+                    // Resume Turn Timer if in active turn phase
+                    if (activeRoom.status === 'PLAYING') {
+                        activeRoom.startTurnTimer();
+                    } else if (activeRoom.status === 'BAO_SAM') {
+                        activeRoom.startBaoSamTimer();
+                    }
+
+                    // Shift client back to game screen and broadcast fresh state
+                    socket.emit('room_joined', { roomCode: activeRoom.code, seat: playerSeat });
+                    activeRoom.broadcastState();
+                    console.log(`Player ${pInRoom.name} successfully reconnected to room ${activeRoom.code}`);
+                }
+            }
+        } catch (err) {
+            console.error('Auth error:', err);
+            socket.emit('action_error', { msg: 'Lỗi xác thực hệ thống!' });
+        }
+    });
+
+    socket.on('update_profile', async ({ name, avatar }) => {
+        if (!socket.playerId) return;
+        try {
+            const profile = await db.updateProfile(socket.playerId, name, avatar);
+            if (!profile) {
+                socket.emit('action_error', { msg: 'Không tìm thấy hồ sơ người chơi!' });
+                return;
+            }
+            socket.emit('profile_loaded', {
+                playerId: socket.playerId,
+                profile
+            });
+        } catch (err) {
+            console.error('Update profile error:', err);
+            socket.emit('action_error', { msg: 'Không thể cập nhật hồ sơ!' });
+        }
+    });
+
+    socket.on('claim_free_coins', async () => {
+        if (!socket.playerId) return;
+        try {
+            const profile = await db.claimFreeCoins(socket.playerId);
+            if (profile) {
+                socket.emit('profile_loaded', {
+                    playerId: socket.playerId,
+                    profile
+                });
+            } else {
+                socket.emit('action_error', { msg: 'Không thể nhận trợ cấp lúc này!' });
+            }
+        } catch (err) {
+            console.error('Claim free coins error:', err);
+            socket.emit('action_error', { msg: 'Lỗi nhận trợ cấp xu!' });
+        }
+    });
+
+    socket.on('create_room', async () => {
+        if (!socket.playerId) {
+            socket.emit('action_error', { msg: 'Vui lòng xác thực trước!' });
+            return;
+        }
+        try {
+            const profile = await db.getPlayer(socket.playerId);
+            if (!profile) {
+                socket.emit('join_error', { msg: 'Không tìm thấy thông tin tài khoản của bạn!' });
+                return;
+            }
+            createAndJoinRoom(socket, profile);
+        } catch (err) {
+            console.error(err);
+            socket.emit('join_error', { msg: 'Lỗi hệ thống khi tạo phòng chơi!' });
+        }
+    });
+
+    socket.on('join_room', async ({ roomCode }) => {
+        if (!socket.playerId) {
+            socket.emit('action_error', { msg: 'Vui lòng xác thực trước!' });
+            return;
+        }
+        try {
+            const room = rooms.get(roomCode);
+            if (!room) {
+                socket.emit('join_error', { msg: 'Phòng không tồn tại hoặc mã phòng không đúng!' });
+                return;
+            }
+            if (room.players.length >= 2) {
+                socket.emit('join_error', { msg: 'Phòng đã đủ 2 người chơi!' });
+                return;
+            }
+
+            const profile = await db.getPlayer(socket.playerId);
+            if (!profile) {
+                socket.emit('join_error', { msg: 'Không tìm thấy thông tin tài khoản của bạn!' });
+                return;
+            }
+
+            const joined = room.addPlayer(socket, profile.name, profile.avatar, profile.score);
+            if (joined) {
+                socket.join(roomCode);
+                socket.emit('room_joined', { roomCode, seat: 1 });
+                console.log(`${profile.name} joined room ${roomCode}`);
+                room.startNewGame();
+            } else {
+                socket.emit('join_error', { msg: 'Không thể tham gia phòng chơi này!' });
+            }
+        } catch (err) {
+            console.error(err);
+            socket.emit('join_error', { msg: 'Lỗi hệ thống khi tham gia phòng chơi!' });
+        }
+    });
+
+    socket.on('quick_match', async () => {
+        if (!socket.playerId) {
+            socket.emit('action_error', { msg: 'Vui lòng xác thực trước!' });
+            return;
+        }
+        try {
+            const profile = await db.getPlayer(socket.playerId);
+            if (!profile) {
+                socket.emit('join_error', { msg: 'Không tìm thấy thông tin tài khoản của bạn!' });
+                return;
+            }
+
+            // Find available room with 1 player waiting
+            let targetRoom = null;
+            for (const [code, r] of rooms.entries()) {
+                if (r.players.length === 1 && r.status === 'WAITING') {
+                    targetRoom = r;
+                    break;
+                }
+            }
+
+            if (targetRoom) {
+                const joined = targetRoom.addPlayer(socket, profile.name, profile.avatar, profile.score);
+                if (joined) {
+                    socket.join(targetRoom.code);
+                    socket.emit('room_joined', { roomCode: targetRoom.code, seat: 1 });
+                    targetRoom.startNewGame();
+                } else {
+                    // Fallback to new room if targetRoom was filled concurrently (Issue 1.2)
+                    createAndJoinRoom(socket, profile);
+                }
+            } else {
+                createAndJoinRoom(socket, profile);
+            }
+        } catch (err) {
+            console.error(err);
+            socket.emit('join_error', { msg: 'Lỗi hệ thống khi tìm trận nhanh!' });
         }
     });
 
@@ -613,12 +860,90 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         console.log(`Player disconnected: ${socket.id}`);
+        if (socket.playerId && playerSockets.get(socket.playerId) === socket) {
+            playerSockets.delete(socket.playerId);
+        }
+
+        // Skip offline disconnect handler if this socket is being kicked for duplicate login (Issue 3)
+        if (socket.isDuplicateKick) {
+            console.log(`Duplicate kick disconnect ignored for socket: ${socket.id}`);
+            return;
+        }
+
         for (const [code, room] of rooms.entries()) {
             const p = room.getPlayerBySocketId(socket.id);
             if (p) {
-                io.to(code).emit('player_left', { seat: p.seat, name: p.name });
-                if (room.turnTimer) clearInterval(room.turnTimer);
-                rooms.delete(code);
+                if (room.status === 'PLAYING' || room.status === 'BAO_SAM' || room.status === 'ROUND_END') {
+                    // Set player offline instead of instant forfeit
+                    p.isOffline = true;
+
+                    // Pause the active game timers
+                    if (room.turnTimer) {
+                        clearInterval(room.turnTimer);
+                        room.turnTimer = null;
+                    }
+                    
+                    const remainingPlayer = room.players.find(pl => pl.id !== socket.id);
+                    if (remainingPlayer) {
+                        io.to(remainingPlayer.id).emit('opponent_offline', {
+                            playerName: p.name,
+                            timeLeft: 15
+                        });
+                    }
+
+                    // If both players are offline, clean up room immediately
+                    if (room.players.every(pl => pl.isOffline)) {
+                        if (room.reconnectTimeout) clearTimeout(room.reconnectTimeout);
+                        if (room.turnTimer) clearInterval(room.turnTimer);
+                        rooms.delete(code);
+                        console.log(`Room ${code} cleared because all players disconnected.`);
+                    } else {
+                        // Start 15s reconnection window
+                        if (room.reconnectTimeout) clearTimeout(room.reconnectTimeout);
+                        room.reconnectTimeout = setTimeout(async () => {
+                            if (p.isOffline) {
+                                const remP = room.players.find(pl => pl.playerId !== p.playerId);
+                                if (remP) {
+                                    // Only apply forfeit penalty if disconnected during active match
+                                    if (room.status === 'PLAYING' || room.status === 'BAO_SAM') {
+                                        try {
+                                            const { leaver, stayer } = await db.applyForfeit(p.playerId, remP.playerId);
+                                            io.to(remP.id).emit('opponent_forfeit', {
+                                                leaverName: p.name,
+                                                stayerScore: stayer ? stayer.score : (remP.score + 20)
+                                            });
+                                            const staySocket = io.sockets.sockets.get(remP.id);
+                                            if (staySocket && stayer) {
+                                                staySocket.emit('profile_loaded', {
+                                                    playerId: remP.playerId,
+                                                    profile: stayer
+                                                });
+                                            }
+                                        } catch (err) {
+                                            console.error('Forfeit DB update failed, using in-memory fallback:', err);
+                                            // Fallback: Notify client even if DB update failed so client is not stranded
+                                            remP.score += 20;
+                                            io.to(remP.id).emit('opponent_forfeit', {
+                                                leaverName: p.name,
+                                                stayerScore: remP.score
+                                            });
+                                        }
+                                    } else {
+                                        // ROUND_END timeout: round already completed, just inform player left
+                                        io.to(remP.id).emit('player_left', { seat: p.seat, name: p.name });
+                                    }
+                                }
+                                if (room.turnTimer) clearInterval(room.turnTimer);
+                                rooms.delete(code);
+                                console.log(`Room ${code} cleared after reconnect timeout expired.`);
+                            }
+                        }, 15000);
+                    }
+                } else {
+                    io.to(code).emit('player_left', { seat: p.seat, name: p.name });
+                    if (room.turnTimer) clearInterval(room.turnTimer);
+                    rooms.delete(code);
+                }
                 break;
             }
         }

@@ -11,8 +11,14 @@ let botAI = null;
 let myProfile = {
     name: 'Người Chơi',
     avatar: '🦁',
-    score: 1000
+    score: 1000,
+    stats: {
+        matches: 0,
+        wins: 0,
+        losses: 0
+    }
 };
+
 
 // Current Active Game State
 let gameState = {
@@ -33,18 +39,50 @@ let gameState = {
     timerInterval: null
 };
 
-function getStoredScore() {
-    const saved = localStorage.getItem('samloc_coins');
-    if (saved !== null) {
-        const val = parseInt(saved, 10);
-        if (!isNaN(val)) return val;
+function updateStatsDisplay() {
+    const rankEl = document.getElementById('playerRank');
+    const matchesEl = document.getElementById('playerMatches');
+    const winsEl = document.getElementById('playerWins');
+    const winRateEl = document.getElementById('playerWinRate');
+
+    const matches = myProfile.stats ? myProfile.stats.matches : 0;
+    const wins = myProfile.stats ? myProfile.stats.wins : 0;
+
+    if (matchesEl) matchesEl.innerText = matches;
+    if (winsEl) winsEl.innerText = wins;
+
+    if (winRateEl) {
+        const rate = matches > 0 ? Math.round((wins / matches) * 100) : 0;
+        winRateEl.innerText = `${rate}%`;
     }
-    return 1000;
+
+    if (rankEl) {
+        const rankObj = myProfile.rank || { name: 'Tập Sự', class: 'rank-tập-sự' };
+        rankEl.innerText = rankObj.name || 'Tập Sự';
+        rankEl.className = 'stat-value ' + (rankObj.class || 'rank-tập-sự');
+    }
 }
 
-function saveStoredScore(score) {
-    localStorage.setItem('samloc_coins', score);
+
+function updateLobbyUI() {
+    const nameInput = document.getElementById('playerNameInput');
+    if (nameInput) {
+        nameInput.value = myProfile.name;
+    }
+    
+    const avatarOpts = document.querySelectorAll('.avatar-opt');
+    avatarOpts.forEach(opt => {
+        if (opt.getAttribute('data-avatar') === myProfile.avatar) {
+            opt.classList.add('selected');
+        } else {
+            opt.classList.remove('selected');
+        }
+    });
+
+    updateLobbyBalance();
+    updateStatsDisplay();
 }
+
 
 function updateLobbyBalance() {
     const display = document.getElementById('lobbyBalanceDisplay');
@@ -70,19 +108,15 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initLobby() {
-    myProfile.score = getStoredScore();
-    gameState.myScore = myProfile.score;
-    updateLobbyBalance();
+    // Connect socket on load to authenticate
+    connectSocket();
 
     const claimBtn = document.getElementById('btnClaimFreeCoins');
     if (claimBtn) {
         claimBtn.addEventListener('click', () => {
-            myProfile.score = Math.max(1000, myProfile.score + 1000);
-            gameState.myScore = myProfile.score;
-            saveStoredScore(myProfile.score);
-            updateLobbyBalance();
-            showToast('🎁 Bạn đã nhận được +1,000 Xu trợ cấp!');
-            sounds.playWin();
+            if (socket) {
+                socket.emit('claim_free_coins');
+            }
         });
     }
 
@@ -94,13 +128,29 @@ function initLobby() {
             opt.classList.add('selected');
             myProfile.avatar = opt.getAttribute('data-avatar');
             sounds.playCardSelect();
+            if (socket) {
+                socket.emit('update_profile', { name: myProfile.name, avatar: myProfile.avatar });
+            }
         });
     });
 
-    // Name Input
+    // Name Input with debounce to prevent rate-limit spam
+    let nameUpdateTimer = null;
     const nameInput = document.getElementById('playerNameInput');
     nameInput.addEventListener('input', (e) => {
         myProfile.name = e.target.value.trim() || 'Người Chơi';
+        if (socket) {
+            clearTimeout(nameUpdateTimer);
+            nameUpdateTimer = setTimeout(() => {
+                socket.emit('update_profile', { name: myProfile.name, avatar: myProfile.avatar });
+            }, 300);
+        }
+    });
+    nameInput.addEventListener('change', () => {
+        if (socket) {
+            clearTimeout(nameUpdateTimer);
+            socket.emit('update_profile', { name: myProfile.name, avatar: myProfile.avatar });
+        }
     });
 
     // Mode Buttons
@@ -135,6 +185,7 @@ function initLobby() {
     });
 }
 
+
 function checkUrlForRoomCode() {
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
@@ -143,10 +194,101 @@ function checkUrlForRoomCode() {
     }
 }
 
+// Serializes auth across same-origin tabs opened at nearly the same instant.
+// Without this, two tabs can both see an empty localStorage at once and each
+// register a brand new server-side account, then race to overwrite
+// localStorage with their own id — leaving one tab orphaned and the DB with
+// a throwaway duplicate account.
+function performAuth() {
+    const run = () => new Promise((resolve) => {
+        const savedId = localStorage.getItem('samloc_player_id');
+        const savedSecret = localStorage.getItem('samloc_player_secret');
+        socket.emit('auth', { playerId: savedId, playerSecret: savedSecret });
+
+        const done = () => {
+            socket.off('profile_loaded', done);
+            socket.off('action_error', done);
+            resolve();
+        };
+        socket.once('profile_loaded', done);
+        socket.once('action_error', done);
+    });
+
+    if (navigator.locks && navigator.locks.request) {
+        navigator.locks.request('samloc_auth_lock', run);
+    } else {
+        run();
+    }
+}
+
 // ================= SOCKET.IO & ONLINE MULTIPLAYER =================
 function connectSocket() {
     if (!socket) {
         socket = io();
+
+        // Re-send auth on every connect — including Socket.IO's automatic
+        // reconnects after a server restart or network drop — otherwise the
+        // reconnected socket never gets socket.playerId bound server-side.
+        socket.on('connect', () => {
+            performAuth();
+        });
+
+        socket.on('profile_loaded', (data) => {
+            const { playerId, playerSecret, profile } = data;
+            if (playerId) localStorage.setItem('samloc_player_id', playerId);
+            if (playerSecret) localStorage.setItem('samloc_player_secret', playerSecret);
+            
+            myProfile.name = profile.name;
+            myProfile.avatar = profile.avatar;
+            myProfile.score = profile.score;
+            myProfile.rank = profile.rank; // Read and store rank computed by server (Issue 4)
+            myProfile.stats = {
+                matches: profile.matches,
+                wins: profile.wins,
+                losses: profile.losses
+            };
+            
+            gameState.myScore = profile.score;
+            updateLobbyUI();
+            
+            if (gameState.roomCode) {
+                renderMyHand();
+            }
+        });
+
+        socket.on('kicked_by_duplicate', () => {
+            document.getElementById('duplicateKickModal').classList.add('show');
+            if (socket) socket.disconnect();
+        });
+
+        socket.on('opponent_forfeit', (data) => {
+            gameState.myScore = data.stayerScore;
+            myProfile.score = data.stayerScore;
+            
+            const modal = document.getElementById('opponentForfeitModal');
+            const desc = document.getElementById('opponentForfeitDesc');
+            if (desc) {
+                desc.innerText = `Đối thủ ${data.leaverName} đã thoát ván đấu! Bạn được xử thắng +20 xu (đối thủ bị phạt -20 xu).`;
+            }
+            if (modal) {
+                modal.classList.add('show');
+            }
+            sounds.playWin();
+        });
+
+        socket.on('opponent_offline', (data) => {
+            showToast(`⚠️ Đối thủ ${data.playerName} bị mất kết nối! Đang chờ kết nối lại...`);
+            showBannerAlert(`⏳ ĐỐI THỦ MẤT KẾT NỐI (15s)`);
+        });
+
+        socket.on('opponent_reconnected', (data) => {
+            showToast(`✅ Đối thủ ${data.playerName} đã kết nối lại!`);
+            showBannerAlert(`⚡ TRẬN ĐẤU TIẾP TỤC`);
+        });
+
+        socket.on('rate_limit_exceeded', (data) => {
+            showToast(data.msg || 'Thao tác quá nhanh!');
+        });
 
         socket.on('room_created', (data) => {
             gameState.roomCode = data.roomCode;
@@ -226,17 +368,19 @@ function connectSocket() {
     }
 }
 
+
 function startOnlineMode(action, code = '') {
     isSoloMode = false;
     connectSocket();
     if (action === 'CREATE') {
-        socket.emit('create_room', { playerName: myProfile.name, avatar: myProfile.avatar, score: myProfile.score });
+        socket.emit('create_room');
     } else if (action === 'JOIN') {
-        socket.emit('join_room', { roomCode: code, playerName: myProfile.name, avatar: myProfile.avatar, score: myProfile.score });
+        socket.emit('join_room', { roomCode: code });
     } else if (action === 'QUICK') {
-        socket.emit('quick_match', { playerName: myProfile.name, avatar: myProfile.avatar, score: myProfile.score });
+        socket.emit('quick_match');
     }
 }
+
 
 // ================= SOLO VS BOT AI MODE =================
 let soloInternal = {
@@ -248,6 +392,7 @@ let soloInternal = {
 function startSoloBotMode() {
     isSoloMode = true;
     botAI = new SamLocAI('Cao Thủ AI');
+    showToast('🎮 Đấu với Bot: Trận đấu tập luyện, điểm số sẽ không được lưu vào tài khoản.');
     gameState.roomCode = 'SOLO-BOT';
     gameState.mySeat = 0;
     gameState.myScore = myProfile.score;
@@ -298,9 +443,6 @@ function startSoloGame() {
             gameState.myScore -= points;
             gameState.opponent.score += points;
         }
-        myProfile.score = gameState.myScore;
-        saveStoredScore(myProfile.score);
-        updateLobbyBalance();
 
         showRoundEndModal({
             winnerSeat: isMe ? 0 : 1,
@@ -501,13 +643,10 @@ function handleSoloFinish(winnerSeat, lastCombo) {
         }
     }
 
-    myProfile.score = gameState.myScore;
-    saveStoredScore(myProfile.score);
-    updateLobbyBalance();
-
+    const effectiveWinnerSeat = isThoiHeo ? 1 - winnerSeat : winnerSeat;
     showRoundEndModal({
-        winnerSeat,
-        winnerName: isWinnerMe ? myProfile.name : botAI.name,
+        winnerSeat: effectiveWinnerSeat,
+        winnerName: effectiveWinnerSeat === 0 ? myProfile.name : botAI.name,
         points,
         isThoiHeoEnd: isThoiHeo,
         penaltyDetails: details,
@@ -719,7 +858,6 @@ function applyGameState(state) {
     gameState.myHand = state.myHand;
     gameState.myScore = state.myScore;
     myProfile.score = state.myScore;
-    saveStoredScore(myProfile.score);
     updateLobbyBalance();
     gameState.myBaoSam = state.myBaoSam;
     gameState.opponent = state.opponent;
@@ -990,6 +1128,17 @@ function showRoundEndModal(data) {
         <span style="color: #fbbf24; font-weight: 800; font-size: 1.15rem;"><span class="coin-icon"></span> ${gameState.myScore.toLocaleString()} xu</span>
     `;
     breakdown.appendChild(balanceItem);
+
+    if (isSoloMode) {
+        const warningItem = document.createElement('div');
+        warningItem.style.marginTop = '12px';
+        warningItem.style.fontSize = '0.8rem';
+        warningItem.style.color = '#f87171'; // soft red warning color
+        warningItem.style.textAlign = 'center';
+        warningItem.style.fontWeight = '600';
+        warningItem.innerText = '* Kết quả ván luyện tập (Đấu với máy) không được lưu vào tài khoản.';
+        breakdown.appendChild(warningItem);
+    }
 
     modal.classList.add('show');
 }

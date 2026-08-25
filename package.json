@@ -11,11 +11,21 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "keywords": ["sam-loc", "card-game", "socketio", "multiplayer", "vietnam-game"],
+  "keywords": [
+    "sam-loc",
+    "card-game",
+    "socketio",
+    "multiplayer",
+    "vietnam-game"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "express": "^5.2.1",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "sqlite3": "^6.0.1"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
   }
 }

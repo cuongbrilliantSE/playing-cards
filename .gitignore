@@ -23,3 +23,11 @@ Thumbs.db
 # Archives & Temporary Raw Assets
 *.zip
 .tempmediaStorage/
+
+# Database & User Profiles
+players.db
+players.db-journal
+players.db-wal
+players.db-shm
+players.json
+

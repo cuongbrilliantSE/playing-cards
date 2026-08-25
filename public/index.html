@@ -40,6 +40,27 @@
                     <div class="ticket-stub" id="lobbyBalanceDisplay"><span class="coin-icon"></span><span>1,000 xu</span></div>
                     <button id="btnClaimFreeCoins" class="btn-free-coins" title="Nhận thêm xu miễn phí" style="display: none;">Nhận 1,000 xu miễn phí</button>
                 </div>
+
+                <!-- Player Stats Panel (A6 & A7) -->
+                <div class="profile-stats">
+                    <div class="stat-box">
+                        <span class="stat-label">Cấp bậc</span>
+                        <span class="stat-value" id="playerRank">Tập sự</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Trận đấu</span>
+                        <span class="stat-value" id="playerMatches">0</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Thắng</span>
+                        <span class="stat-value" id="playerWins">0</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Tỷ lệ thắng</span>
+                        <span class="stat-value" id="playerWinRate">0%</span>
+                    </div>
+                </div>
+
             </div>
 
             <!-- Game Modes — a betting board, not a feature grid -->
@@ -243,6 +264,28 @@
         </div>
     </div>
 
+    <!-- ================= 5. DUPLICATE KICK WARNING MODAL ================= -->
+    <div class="modal-backdrop" id="duplicateKickModal">
+        <div class="modal-box modal-box--confirm">
+            <h2 class="modal-title" style="color: var(--lacquer-danger);">Phiên chơi hết hạn!</h2>
+            <p class="modal-message">Tài khoản của bạn đã được mở ở một tab hoặc trình duyệt khác. Tab này hiện đã bị ngắt kết nối.</p>
+            <div style="text-align: center; margin-top: 22px;">
+                <button onclick="window.location.reload();" class="btn-game btn-play" style="min-width: 140px; margin: 0 auto;">Tải lại trang</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 6. OPPONENT FORFEIT WARNING MODAL ================= -->
+    <div class="modal-backdrop" id="opponentForfeitModal">
+        <div class="modal-box">
+            <h2 class="modal-title" style="color: var(--gold-bright);">🏆 ĐỐI THỦ BỎ CUỘC</h2>
+            <p class="modal-message" id="opponentForfeitDesc" style="margin: 15px 0; line-height: 1.6;"></p>
+            <div style="text-align: center; margin-top: 20px;">
+                <button id="btnForfeitExit" onclick="document.getElementById('opponentForfeitModal').classList.remove('show'); window.location.href=window.location.pathname;" class="btn-game btn-play" style="min-width: 160px; margin: 0 auto;">Quay về Sảnh</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="/socket.io/socket.io.js"></script>
     <script src="js/gameRules.js"></script>
@@ -251,3 +294,4 @@
     <script src="js/client.js"></script>
 </body>
 </html>
+
