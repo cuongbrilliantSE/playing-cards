@@ -766,9 +766,16 @@ io.on('connection', (socket) => {
             // Find available room with 1 player waiting
             let targetRoom = null;
             for (const [code, r] of rooms.entries()) {
-                if (r.players.length === 1 && r.status === 'WAITING') {
-                    targetRoom = r;
-                    break;
+                if (r.players.length === 1 && r.status === 'WAITING' && !r.players[0].isOffline) {
+                    const hostSocket = io.sockets.sockets.get(r.players[0].id);
+                    if (hostSocket && hostSocket.connected) {
+                        targetRoom = r;
+                        break;
+                    } else {
+                        rooms.delete(code);
+                    }
+                } else if (r.players.length === 0 || r.players.every(p => p.isOffline)) {
+                    rooms.delete(code);
                 }
             }
 
@@ -910,35 +917,44 @@ io.on('connection', (socket) => {
 
             // Clean up or transition room
             if (room.players.length > 0) {
-                io.to(roomCode).emit('player_left', { seat: player.seat, name: player.name });
-                
-                if (room.players[0].seat !== 0) {
-                    room.players[0].seat = 0;
+                const remP = room.players[0];
+                const remSocket = io.sockets.sockets.get(remP.id);
+                if (remP.isOffline || !remSocket || !remSocket.connected) {
+                    if (room.turnTimer) clearInterval(room.turnTimer);
+                    if (room.reconnectTimeout) clearTimeout(room.reconnectTimeout);
+                    rooms.delete(roomCode);
+                    console.log(`Room ${roomCode} deleted because remaining player is offline.`);
+                } else {
+                    io.to(roomCode).emit('player_left', { seat: player.seat, name: player.name });
+                    
+                    if (room.players[0].seat !== 0) {
+                        room.players[0].seat = 0;
+                    }
+                    
+                    room.status = 'WAITING';
+                    room.tableCombo = null;
+                    room.lastPlayedBy = -1;
+                    room.playedHistory = [];
+                    room.baoSamPlayerSeat = -1;
+                    room.players.forEach(pl => {
+                        pl.hand = [];
+                        pl.passedTrick = false;
+                        pl.baoSam = null;
+                        pl.hasBaoMot = false;
+                        pl.ready = true;
+                    });
+                    
+                    if (room.turnTimer) {
+                        clearInterval(room.turnTimer);
+                        room.turnTimer = null;
+                    }
+                    if (room.reconnectTimeout) {
+                        clearTimeout(room.reconnectTimeout);
+                        room.reconnectTimeout = null;
+                    }
+                    
+                    room.broadcastState();
                 }
-                
-                room.status = 'WAITING';
-                room.tableCombo = null;
-                room.lastPlayedBy = -1;
-                room.playedHistory = [];
-                room.baoSamPlayerSeat = -1;
-                room.players.forEach(pl => {
-                    pl.hand = [];
-                    pl.passedTrick = false;
-                    pl.baoSam = null;
-                    pl.hasBaoMot = false;
-                    pl.ready = true;
-                });
-                
-                if (room.turnTimer) {
-                    clearInterval(room.turnTimer);
-                    room.turnTimer = null;
-                }
-                if (room.reconnectTimeout) {
-                    clearTimeout(room.reconnectTimeout);
-                    room.reconnectTimeout = null;
-                }
-                
-                room.broadcastState();
             } else {
                 if (room.turnTimer) clearInterval(room.turnTimer);
                 if (room.reconnectTimeout) clearTimeout(room.reconnectTimeout);
@@ -965,7 +981,7 @@ io.on('connection', (socket) => {
         for (const [code, room] of rooms.entries()) {
             const p = room.getPlayerBySocketId(socket.id);
             if (p) {
-                if (room.status === 'PLAYING' || room.status === 'BAO_SAM' || room.status === 'ROUND_END') {
+                if (room.status === 'PLAYING' || room.status === 'BAO_SAM') {
                     // Set player offline instead of instant forfeit
                     p.isOffline = true;
 
@@ -996,7 +1012,6 @@ io.on('connection', (socket) => {
                             if (p.isOffline) {
                                 const remP = room.players.find(pl => pl.playerId !== p.playerId);
                                 if (remP) {
-                                    // Only apply forfeit penalty if disconnected during active match
                                     if (room.status === 'PLAYING' || room.status === 'BAO_SAM') {
                                         try {
                                             const { leaver, stayer } = await db.applyForfeit(p.playerId, remP.playerId);
@@ -1023,11 +1038,10 @@ io.on('connection', (socket) => {
                                         rooms.delete(code);
                                         console.log(`Room ${code} cleared after active game forfeit timeout.`);
                                     } else {
-                                        // ROUND_END timeout: round already completed, just inform player left
                                         io.to(remP.id).emit('player_left', { seat: p.seat, name: p.name });
                                         room.removePlayer(p.id);
 
-                                        if (room.players[0].seat !== 0) {
+                                        if (room.players[0] && room.players[0].seat !== 0) {
                                             room.players[0].seat = 0;
                                         }
 
@@ -1059,33 +1073,43 @@ io.on('connection', (socket) => {
                 } else {
                     room.removePlayer(socket.id);
                     if (room.players.length > 0) {
-                        io.to(code).emit('player_left', { seat: p.seat, name: p.name });
-                        
-                        if (room.players[0].seat !== 0) {
-                            room.players[0].seat = 0;
+                        const remP = room.players[0];
+                        const remSocket = io.sockets.sockets.get(remP.id);
+                        if (remP.isOffline || !remSocket || !remSocket.connected) {
+                            if (room.turnTimer) clearInterval(room.turnTimer);
+                            if (room.reconnectTimeout) clearTimeout(room.reconnectTimeout);
+                            rooms.delete(code);
+                            console.log(`Room ${code} cleared because remaining player ${remP.name} is offline.`);
+                        } else {
+                            io.to(code).emit('player_left', { seat: p.seat, name: p.name });
+                            
+                            if (room.players[0].seat !== 0) {
+                                room.players[0].seat = 0;
+                            }
+
+                            room.status = 'WAITING';
+                            room.tableCombo = null;
+                            room.lastPlayedBy = -1;
+                            room.playedHistory = [];
+                            room.baoSamPlayerSeat = -1;
+                            room.players.forEach(pl => {
+                                pl.hand = [];
+                                pl.passedTrick = false;
+                                pl.baoSam = null;
+                                pl.hasBaoMot = false;
+                                pl.ready = true;
+                            });
+
+                            if (room.turnTimer) {
+                                clearInterval(room.turnTimer);
+                                room.turnTimer = null;
+                            }
+
+                            room.broadcastState();
                         }
-
-                        room.status = 'WAITING';
-                        room.tableCombo = null;
-                        room.lastPlayedBy = -1;
-                        room.playedHistory = [];
-                        room.baoSamPlayerSeat = -1;
-                        room.players.forEach(pl => {
-                            pl.hand = [];
-                            pl.passedTrick = false;
-                            pl.baoSam = null;
-                            pl.hasBaoMot = false;
-                            pl.ready = true;
-                        });
-
-                        if (room.turnTimer) {
-                            clearInterval(room.turnTimer);
-                            room.turnTimer = null;
-                        }
-
-                        room.broadcastState();
                     } else {
                         if (room.turnTimer) clearInterval(room.turnTimer);
+                        if (room.reconnectTimeout) clearTimeout(room.reconnectTimeout);
                         rooms.delete(code);
                         console.log(`Room ${code} cleared because it is empty.`);
                     }
