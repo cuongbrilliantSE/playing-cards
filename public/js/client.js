@@ -6,6 +6,7 @@
 let socket = null;
 let isSoloMode = false;
 let botAI = null;
+let isAuthComplete = false;
 
 // Player Profile State
 let myProfile = {
@@ -205,13 +206,29 @@ function performAuth() {
         const savedSecret = localStorage.getItem('samloc_player_secret');
         socket.emit('auth', { playerId: savedId, playerSecret: savedSecret });
 
-        const done = () => {
-            socket.off('profile_loaded', done);
-            socket.off('action_error', done);
+        const onProfileLoaded = () => {
+            socket.off('profile_loaded', onProfileLoaded);
+            socket.off('action_error', onActionError);
             resolve();
         };
-        socket.once('profile_loaded', done);
-        socket.once('action_error', done);
+
+        const onActionError = (data) => {
+            if (data.code === 'INVALID_AUTH' || data.msg === 'Mã xác thực không hợp lệ!') {
+                localStorage.removeItem('samloc_player_id');
+                localStorage.removeItem('samloc_player_secret');
+                socket.off('profile_loaded', onProfileLoaded);
+                socket.off('action_error', onActionError);
+                resolve();
+                performAuth();
+                return;
+            }
+            socket.off('profile_loaded', onProfileLoaded);
+            socket.off('action_error', onActionError);
+            resolve();
+        };
+
+        socket.once('profile_loaded', onProfileLoaded);
+        socket.once('action_error', onActionError);
     });
 
     if (navigator.locks && navigator.locks.request) {
@@ -234,6 +251,7 @@ function connectSocket() {
         });
 
         socket.on('profile_loaded', (data) => {
+            isAuthComplete = true;
             const { playerId, playerSecret, profile } = data;
             if (playerId) localStorage.setItem('samloc_player_id', playerId);
             if (playerSecret) localStorage.setItem('samloc_player_secret', playerSecret);
@@ -254,6 +272,10 @@ function connectSocket() {
             if (gameState.roomCode) {
                 renderMyHand();
             }
+        });
+
+        socket.on('disconnect', () => {
+            isAuthComplete = false;
         });
 
         socket.on('kicked_by_duplicate', () => {
@@ -376,12 +398,25 @@ function connectSocket() {
 function startOnlineMode(action, code = '') {
     isSoloMode = false;
     connectSocket();
-    if (action === 'CREATE') {
-        socket.emit('create_room');
-    } else if (action === 'JOIN') {
-        socket.emit('join_room', { roomCode: code });
-    } else if (action === 'QUICK') {
-        socket.emit('quick_match');
+
+    const emitAction = () => {
+        if (action === 'CREATE') {
+            socket.emit('create_room');
+        } else if (action === 'JOIN') {
+            socket.emit('join_room', { roomCode: code });
+        } else if (action === 'QUICK') {
+            socket.emit('quick_match');
+        }
+    };
+
+    if (isAuthComplete) {
+        emitAction();
+    } else {
+        showToast('Đang kết nối hệ thống, vui lòng đợi...');
+        // Wait for profile_loaded to run our action
+        socket.once('profile_loaded', () => {
+            emitAction();
+        });
     }
 }
 

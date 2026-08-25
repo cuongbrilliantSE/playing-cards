@@ -590,7 +590,7 @@ io.on('connection', (socket) => {
             } else {
                 const isValid = await db.verifySecret(playerId, playerSecret);
                 if (!isValid) {
-                    socket.emit('action_error', { msg: 'Mã xác thực không hợp lệ!' });
+                    socket.emit('action_error', { code: 'INVALID_AUTH', msg: 'Mã xác thực không hợp lệ!' });
                     return;
                 }
                 
