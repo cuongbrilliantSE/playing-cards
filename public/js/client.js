@@ -1015,19 +1015,53 @@ function handleSortHand() {
     renderMyHand();
 }
 
+let hintAdvisor = null;
+
 function handleHintMove() {
-    const playable = findPlayableCombinations(gameState.myHand, gameState.tableCombo);
-    if (playable.length === 0) {
-        showToast('Không có bài nào hợp lệ để đánh đè!');
+    if (gameState.status !== 'PLAYING' || gameState.currentTurnSeat !== gameState.mySeat) {
+        showToast('Chưa đến lượt của bạn!');
+        return;
+    }
+    if (!gameState.myHand || gameState.myHand.length === 0) {
+        showToast('Bạn không còn bài trên tay!');
         return;
     }
 
-    // Pick lowest playable combo
-    const bestMove = playable[0];
-    gameState.selectedCardIds = new Set(bestMove.map(c => c.id));
-    sounds.playCardSelect();
-    renderMyHand();
-    showToast(`Gợi ý: ${evaluateCombination(bestMove).name}`);
+    if (!hintAdvisor) {
+        hintAdvisor = new SamLocAI('Cố Vấn Cao Thủ');
+    }
+
+    const oppCardCount = gameState.opponent ? (gameState.opponent.cardCount || 10) : 10;
+    const isOppBaoMot = gameState.opponent ? (gameState.opponent.hasBaoMot || oppCardCount === 1) : false;
+
+    // Use Master AI algorithm to find optimal tactical move
+    const smartMove = hintAdvisor.decideMove(gameState.myHand, gameState.tableCombo, oppCardCount, isOppBaoMot);
+
+    if (smartMove && smartMove.length > 0) {
+        gameState.selectedCardIds = new Set(smartMove.map(c => c.id));
+        sounds.playCardSelect();
+        renderMyHand();
+        const evalCombo = evaluateCombination(smartMove);
+        showToast(`💡 Cao thủ gợi ý: ${evalCombo.name}`);
+    } else {
+        const isFreeLead = !gameState.tableCombo || gameState.tableCombo.type === COMBO_TYPES.INVALID || gameState.lastPlayedBy === gameState.mySeat;
+        if (isFreeLead) {
+            // Free lead fallback
+            const non2s = gameState.myHand.filter(c => c.rank.value !== '2');
+            const fallback = non2s.length > 0 ? [non2s[0]] : [gameState.myHand[0]];
+            gameState.selectedCardIds = new Set(fallback.map(c => c.id));
+            sounds.playCardSelect();
+            renderMyHand();
+            showToast(`💡 Cao thủ gợi ý: ${evaluateCombination(fallback).name}`);
+        } else {
+            const playable = findPlayableCombinations(gameState.myHand, gameState.tableCombo);
+            if (playable.length === 0) {
+                showToast('Không có bài nào hợp lệ để đánh đè!');
+            } else {
+                showToast('💡 Cao thủ khuyên: Nên Bỏ lượt để giữ bài đẹp!');
+            }
+        }
+    }
 }
 
 // ================= UI RENDERING =================
