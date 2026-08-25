@@ -67,7 +67,7 @@ function updateStatsDisplay() {
 
 function updateLobbyUI() {
     const nameInput = document.getElementById('playerNameInput');
-    if (nameInput) {
+    if (nameInput && document.activeElement !== nameInput) {
         nameInput.value = myProfile.name;
     }
     
@@ -139,15 +139,24 @@ function initLobby() {
     let nameUpdateTimer = null;
     const nameInput = document.getElementById('playerNameInput');
     nameInput.addEventListener('input', (e) => {
-        myProfile.name = e.target.value.trim() || 'Người Chơi';
-        if (socket) {
-            clearTimeout(nameUpdateTimer);
-            nameUpdateTimer = setTimeout(() => {
-                socket.emit('update_profile', { name: myProfile.name, avatar: myProfile.avatar });
-            }, 300);
+        const val = e.target.value.trim();
+        if (val) {
+            myProfile.name = val;
+            if (socket) {
+                clearTimeout(nameUpdateTimer);
+                nameUpdateTimer = setTimeout(() => {
+                    socket.emit('update_profile', { name: myProfile.name, avatar: myProfile.avatar });
+                }, 300);
+            }
         }
     });
     nameInput.addEventListener('change', () => {
+        let val = nameInput.value.trim();
+        if (!val) {
+            val = 'Người Chơi';
+            nameInput.value = val;
+        }
+        myProfile.name = val;
         if (socket) {
             clearTimeout(nameUpdateTimer);
             socket.emit('update_profile', { name: myProfile.name, avatar: myProfile.avatar });
