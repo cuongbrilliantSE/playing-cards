@@ -342,6 +342,80 @@ async function runTests() {
     
     socketP2.disconnect();
 
+    // ----------------------------------------------------
+    // TEST 7: Explicit leave_room Forfeit (Rage Quit penalty)
+    // ----------------------------------------------------
+    console.log('\n--- TEST 7: Explicit leave_room Forfeit ---');
+    
+    const p3 = await db.createPlayer();
+    const p4 = await db.createPlayer();
+    
+    await db.updateProfile(p3.id, 'Explicit Leaver', '🦊');
+    await db.updateProfile(p4.id, 'Explicit Stayer', '😎');
+    
+    const initialLeaverScore7 = (await db.getPlayer(p3.id)).score; // 1000
+    const initialStayerScore7 = (await db.getPlayer(p4.id)).score; // 1000
+    
+    const socketP3 = io(SERVER_URL, { forceNew: true });
+    const socketP4 = io(SERVER_URL, { forceNew: true });
+    
+    let roomCode7 = null;
+    
+    await new Promise((resolve, reject) => {
+        socketP3.on('connect', () => {
+            socketP3.emit('auth', { playerId: p3.id, playerSecret: p3.secret });
+        });
+        
+        socketP3.on('profile_loaded', () => {
+            socketP4.emit('auth', { playerId: p4.id, playerSecret: p4.secret });
+        });
+        
+        socketP4.on('profile_loaded', () => {
+            socketP3.emit('create_room');
+        });
+        
+        socketP3.on('room_created', (data) => {
+            roomCode7 = data.roomCode;
+            socketP4.emit('join_room', { roomCode: roomCode7 });
+        });
+        
+        socketP4.on('opponent_forfeit', async (data) => {
+            console.log(`Received opponent_forfeit event for explicit leave! Leaver: ${data.leaverName}, Stayer new score: ${data.stayerScore}`);
+            
+            await sleep(500);
+            
+            const finalLeaver = await db.getPlayer(p3.id);
+            const finalStayer = await db.getPlayer(p4.id);
+            
+            console.log(`Initial: Leaver ${initialLeaverScore7} xu, Stayer ${initialStayerScore7} xu`);
+            console.log(`Final: Leaver ${finalLeaver.score} xu, Stayer ${finalStayer.score} xu`);
+            
+            const isLeaverCorrect = finalLeaver.score === initialLeaverScore7 - 20 && finalLeaver.losses === 1;
+            const isStayerCorrect = finalStayer.score === initialStayerScore7 + 20 && finalStayer.wins === 1;
+            
+            if (isLeaverCorrect && isStayerCorrect) {
+                console.log('Success: Explicit leave_room forfeit penalty successfully updated SQLite DB correctly!');
+                resolve();
+            } else {
+                reject(new Error('Explicit leave_room forfeit penalties were not applied correctly to SQLite DB'));
+            }
+        });
+
+        socketP3.on('room_left', () => {
+            console.log('P3 received room_left confirmation event.');
+        });
+
+        socketP4.on('game_state', async (state) => {
+            if (state.status === 'BAO_SAM') {
+                console.log(`Game started in room ${roomCode7}. Emitting explicit leave_room from Player 3 (Leaver)...`);
+                socketP3.emit('leave_room', { roomCode: roomCode7 });
+            }
+        });
+    });
+    
+    socketP3.disconnect();
+    socketP4.disconnect();
+
     console.log('\n=== ALL SECURITY INTEGRATION TESTS PASSED SUCCESSFULLY! ===');
     await cleanupTestDbFiles();
     process.exit(0);

@@ -365,6 +365,10 @@ function connectSocket() {
             gameState.opponent = null;
             renderOpponent();
         });
+
+        socket.on('room_left', () => {
+            window.location.href = window.location.pathname;
+        });
     }
 }
 
@@ -675,7 +679,15 @@ function initGameControls() {
     });
 
     document.getElementById('btnConfirmLeave').addEventListener('click', () => {
-        window.location.href = window.location.pathname;
+        if (socket && gameState.roomCode) {
+            document.getElementById('leaveConfirmModal').classList.remove('show');
+            socket.emit('leave_room', { roomCode: gameState.roomCode });
+            setTimeout(() => {
+                window.location.href = window.location.pathname;
+            }, 500);
+        } else {
+            window.location.href = window.location.pathname;
+        }
     });
 
     document.getElementById('btnCopyLink').addEventListener('click', () => {
@@ -703,7 +715,15 @@ function initGameControls() {
     });
 
     document.getElementById('btnExitToLobby').addEventListener('click', () => {
-        window.location.href = window.location.pathname;
+        if (socket && gameState.roomCode) {
+            document.getElementById('roundEndModal').classList.remove('show');
+            socket.emit('leave_room', { roomCode: gameState.roomCode });
+            setTimeout(() => {
+                window.location.href = window.location.pathname;
+            }, 500);
+        } else {
+            window.location.href = window.location.pathname;
+        }
     });
 }
 

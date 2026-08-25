@@ -858,6 +858,98 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('leave_room', async ({ roomCode }) => {
+        const room = rooms.get(roomCode);
+        if (!room) {
+            socket.emit('room_left');
+            return;
+        }
+
+        const player = room.getPlayerBySocketId(socket.id);
+        if (!player) {
+            socket.emit('room_left');
+            return;
+        }
+
+        console.log(`Player ${player.name} (${socket.id}) explicitly leaving room ${roomCode} (status: ${room.status})`);
+
+        if (room.status === 'PLAYING' || room.status === 'BAO_SAM') {
+            // Apply forfeit penalty immediately (Rage quit penalty)
+            const remainingPlayer = room.players.find(pl => pl.playerId !== player.playerId);
+            if (remainingPlayer) {
+                try {
+                    const { leaver, stayer } = await db.applyForfeit(player.playerId, remainingPlayer.playerId);
+                    io.to(remainingPlayer.id).emit('opponent_forfeit', {
+                        leaverName: player.name,
+                        stayerScore: stayer ? stayer.score : (remainingPlayer.score + 20)
+                    });
+                    const staySocket = io.sockets.sockets.get(remainingPlayer.id);
+                    if (staySocket && stayer) {
+                        staySocket.emit('profile_loaded', {
+                            playerId: remainingPlayer.playerId,
+                            profile: stayer
+                        });
+                    }
+                } catch (err) {
+                    console.error('Forfeit DB update failed on explicit leave:', err);
+                    remainingPlayer.score += 20;
+                    io.to(remainingPlayer.id).emit('opponent_forfeit', {
+                        leaverName: player.name,
+                        stayerScore: remainingPlayer.score
+                    });
+                }
+            }
+            if (room.turnTimer) clearInterval(room.turnTimer);
+            if (room.reconnectTimeout) clearTimeout(room.reconnectTimeout);
+            rooms.delete(roomCode);
+            console.log(`Room ${roomCode} deleted after explicit forfeit leave.`);
+        } else {
+            // Room state is WAITING or ROUND_END
+            room.removePlayer(socket.id);
+            socket.leave(roomCode);
+
+            // Clean up or transition room
+            if (room.players.length > 0) {
+                io.to(roomCode).emit('player_left', { seat: player.seat, name: player.name });
+                
+                if (room.players[0].seat !== 0) {
+                    room.players[0].seat = 0;
+                }
+                
+                room.status = 'WAITING';
+                room.tableCombo = null;
+                room.lastPlayedBy = -1;
+                room.playedHistory = [];
+                room.baoSamPlayerSeat = -1;
+                room.players.forEach(pl => {
+                    pl.hand = [];
+                    pl.passedTrick = false;
+                    pl.baoSam = null;
+                    pl.hasBaoMot = false;
+                    pl.ready = true;
+                });
+                
+                if (room.turnTimer) {
+                    clearInterval(room.turnTimer);
+                    room.turnTimer = null;
+                }
+                if (room.reconnectTimeout) {
+                    clearTimeout(room.reconnectTimeout);
+                    room.reconnectTimeout = null;
+                }
+                
+                room.broadcastState();
+            } else {
+                if (room.turnTimer) clearInterval(room.turnTimer);
+                if (room.reconnectTimeout) clearTimeout(room.reconnectTimeout);
+                rooms.delete(roomCode);
+                console.log(`Room ${roomCode} deleted because it is empty.`);
+            }
+        }
+
+        socket.emit('room_left');
+    });
+
     socket.on('disconnect', () => {
         console.log(`Player disconnected: ${socket.id}`);
         if (socket.playerId && playerSockets.get(socket.playerId) === socket) {
@@ -921,28 +1013,82 @@ io.on('connection', (socket) => {
                                             }
                                         } catch (err) {
                                             console.error('Forfeit DB update failed, using in-memory fallback:', err);
-                                            // Fallback: Notify client even if DB update failed so client is not stranded
                                             remP.score += 20;
                                             io.to(remP.id).emit('opponent_forfeit', {
                                                 leaverName: p.name,
                                                 stayerScore: remP.score
                                             });
                                         }
+                                        if (room.turnTimer) clearInterval(room.turnTimer);
+                                        rooms.delete(code);
+                                        console.log(`Room ${code} cleared after active game forfeit timeout.`);
                                     } else {
                                         // ROUND_END timeout: round already completed, just inform player left
                                         io.to(remP.id).emit('player_left', { seat: p.seat, name: p.name });
+                                        room.removePlayer(p.id);
+
+                                        if (room.players[0].seat !== 0) {
+                                            room.players[0].seat = 0;
+                                        }
+
+                                        room.status = 'WAITING';
+                                        room.tableCombo = null;
+                                        room.lastPlayedBy = -1;
+                                        room.playedHistory = [];
+                                        room.baoSamPlayerSeat = -1;
+                                        room.players.forEach(pl => {
+                                            pl.hand = [];
+                                            pl.passedTrick = false;
+                                            pl.baoSam = null;
+                                            pl.hasBaoMot = false;
+                                            pl.ready = true;
+                                        });
+
+                                        if (room.turnTimer) {
+                                            clearInterval(room.turnTimer);
+                                            room.turnTimer = null;
+                                        }
+
+                                        room.broadcastState();
+                                        console.log(`Room ${code} kept after ROUND_END reconnect timeout; player removed.`);
                                     }
                                 }
-                                if (room.turnTimer) clearInterval(room.turnTimer);
-                                rooms.delete(code);
-                                console.log(`Room ${code} cleared after reconnect timeout expired.`);
                             }
                         }, 15000);
                     }
                 } else {
-                    io.to(code).emit('player_left', { seat: p.seat, name: p.name });
-                    if (room.turnTimer) clearInterval(room.turnTimer);
-                    rooms.delete(code);
+                    room.removePlayer(socket.id);
+                    if (room.players.length > 0) {
+                        io.to(code).emit('player_left', { seat: p.seat, name: p.name });
+                        
+                        if (room.players[0].seat !== 0) {
+                            room.players[0].seat = 0;
+                        }
+
+                        room.status = 'WAITING';
+                        room.tableCombo = null;
+                        room.lastPlayedBy = -1;
+                        room.playedHistory = [];
+                        room.baoSamPlayerSeat = -1;
+                        room.players.forEach(pl => {
+                            pl.hand = [];
+                            pl.passedTrick = false;
+                            pl.baoSam = null;
+                            pl.hasBaoMot = false;
+                            pl.ready = true;
+                        });
+
+                        if (room.turnTimer) {
+                            clearInterval(room.turnTimer);
+                            room.turnTimer = null;
+                        }
+
+                        room.broadcastState();
+                    } else {
+                        if (room.turnTimer) clearInterval(room.turnTimer);
+                        rooms.delete(code);
+                        console.log(`Room ${code} cleared because it is empty.`);
+                    }
                 }
                 break;
             }
