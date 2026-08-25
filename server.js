@@ -305,6 +305,12 @@ class GameRoom {
             io.to(this.code).emit('player_bao_mot', { seat, playerName: p.name });
         }
 
+        // Check BẮT SÂM / ĐỀN SÂM (Luật Sâm Lốc: Báo Sâm bị chặn 1 lần là thua ngay lập tức):
+        if (this.baoSamPlayerSeat !== -1 && seat !== this.baoSamPlayerSeat) {
+            this.handleDenSam(seat, this.baoSamPlayerSeat);
+            return { success: true };
+        }
+
         // Check Finish (0 cards remaining)
         if (p.hand.length === 0) {
             this.handleRoundFinish(seat, playedCombo);
@@ -436,6 +442,24 @@ class GameRoom {
             isDenSam,
             isThoiHeoEnd,
             penaltyDetails
+        }));
+    }
+
+    handleDenSam(interceptorSeat, sâmPlayerSeat) {
+        if (this.turnTimer) clearInterval(this.turnTimer);
+        this.status = 'ROUND_END';
+        this.lastWinnerSeat = interceptorSeat;
+
+        const winner = this.getPlayerBySeat(interceptorSeat);
+        const loser = this.getPlayerBySeat(sâmPlayerSeat);
+        const points = 25;
+
+        this.saveAndEmitRoundEnd(winner, loser, points, -points, (winP, loseP) => ({
+            winnerSeat: interceptorSeat,
+            winnerName: winP.name,
+            points,
+            isDenSam: true,
+            penaltyDetails: [`💥 ${winP.name} ĐÃ BẮT SÂM THÀNH CÔNG! ${loseP.name} BỊ PHẠT ĐỀN SÂM (-${points} điểm)!`]
         }));
     }
 

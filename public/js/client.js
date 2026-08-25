@@ -397,7 +397,10 @@ function connectSocket() {
                 }
             }
             renderOpponent();
-            showRoundEndModal(data);
+            renderTableCenter();
+            setTimeout(() => {
+                showRoundEndModal(data);
+            }, 1300);
         });
 
         socket.on('action_error', (data) => {
@@ -638,6 +641,17 @@ function triggerBotTurn() {
                 sounds.playCardPlay();
             }
 
+            // Render played cards immediately so player sees what bot played
+            renderGameState();
+
+            // Check BẮT SÂM / ĐỀN SÂM (Người Báo Sâm bị chặn 1 lần là thua ngay):
+            if (gameState.baoSamPlayerSeat === 0) {
+                setTimeout(() => {
+                    handleSoloDenSam(1, 0);
+                }, 1400);
+                return;
+            }
+
             // Check Báo 1
             if (soloInternal.botHand.length === 1 && !gameState.opponent.hasBaoMot) {
                 gameState.opponent.hasBaoMot = true;
@@ -647,7 +661,9 @@ function triggerBotTurn() {
 
             // Check Win
             if (soloInternal.botHand.length === 0) {
-                handleSoloFinish(1, combo);
+                setTimeout(() => {
+                    handleSoloFinish(1, combo);
+                }, 1400);
                 return;
             }
 
@@ -726,6 +742,44 @@ function handleSoloFinish(winnerSeat, lastCombo) {
         points,
         isThoiHeoEnd: isThoiHeo,
         penaltyDetails: details,
+        players: [
+            { seat: 0, name: myProfile.name, score: gameState.myScore, hand: gameState.myHand },
+            { seat: 1, name: botAI.name, score: gameState.opponent.score, hand: soloInternal.botHand }
+        ]
+    });
+}
+
+function handleSoloDenSam(interceptorSeat, sâmPlayerSeat) {
+    if (gameState.timerInterval) clearInterval(gameState.timerInterval);
+    gameState.status = 'ROUND_END';
+
+    const isWinnerMe = interceptorSeat === 0;
+    const winnerName = isWinnerMe ? myProfile.name : botAI.name;
+    const loserName = isWinnerMe ? botAI.name : 'BẠN';
+    const points = 25;
+
+    if (isWinnerMe) {
+        gameState.myScore += points;
+        gameState.opponent.score -= points;
+        sounds.playChatHeo();
+        showBannerAlert('💥 BẠN ĐÃ BẮT SÂM THÀNH CÔNG!');
+    } else {
+        gameState.myScore -= points;
+        gameState.opponent.score += points;
+        sounds.playLose();
+        showBannerAlert(`💔 ${botAI.name} ĐÃ BẮT SÂM! BẠN BỊ ĐỀN SÂM!`);
+    }
+
+    if (soloInternal.botHand) {
+        gameState.opponentRevealedHand = soloInternal.botHand;
+    }
+    renderOpponent();
+    showRoundEndModal({
+        winnerSeat: interceptorSeat,
+        winnerName: winnerName,
+        points,
+        isDenSam: true,
+        penaltyDetails: [`💥 ${isWinnerMe ? 'BẠN' : botAI.name} ĐÃ BẮT SÂM THÀNH CÔNG! ${loserName} BỊ PHẠT ĐỀN SÂM (-${points} xu)!`],
         players: [
             { seat: 0, name: myProfile.name, score: gameState.myScore, hand: gameState.myHand },
             { seat: 1, name: botAI.name, score: gameState.opponent.score, hand: soloInternal.botHand }
@@ -848,6 +902,17 @@ function handlePlayClick() {
             sounds.playCardPlay();
         }
 
+        // Render played cards immediately
+        renderGameState();
+
+        // Check BẮT SÂM / ĐỀN SÂM (Bot Báo Sâm bị User chặn -> Thua ngay lập tức):
+        if (gameState.baoSamPlayerSeat === 1) {
+            setTimeout(() => {
+                handleSoloDenSam(0, 1);
+            }, 1200);
+            return;
+        }
+
         // Check Báo 1 for user
         if (gameState.myHand.length === 1) {
             sounds.playBaoMot();
@@ -856,7 +921,9 @@ function handlePlayClick() {
 
         // Check user win
         if (gameState.myHand.length === 0) {
-            handleSoloFinish(0, evalCombo);
+            setTimeout(() => {
+                handleSoloFinish(0, evalCombo);
+            }, 1200);
             return;
         }
 
