@@ -384,8 +384,9 @@ function connectSocket() {
 
         socket.on('player_passed', (data) => {
             sounds.playPass();
-            const name = data.seat === gameState.mySeat ? 'Bạn' : data.playerName;
-            showToast(`${name} đã bỏ lượt!`);
+            const name = data.seat === gameState.mySeat ? 'BẠN' : data.playerName.toUpperCase();
+            showBannerAlert(`⏭️ ${name} ĐÃ BỎ LƯỢT!`);
+            showToast(`${data.playerName} đã bỏ lượt!`);
         });
 
         socket.on('player_bao_mot', (data) => {
@@ -405,7 +406,7 @@ function connectSocket() {
             renderTableCenter();
             setTimeout(() => {
                 showRoundEndModal(data);
-            }, 1300);
+            }, 1800);
         });
 
         socket.on('action_error', (data) => {
@@ -656,7 +657,7 @@ function triggerBotTurn() {
             if (gameState.baoSamPlayerSeat === 0) {
                 setTimeout(() => {
                     handleSoloDenSam(1, 0);
-                }, 1400);
+                }, 2000);
                 return;
             }
 
@@ -671,7 +672,7 @@ function triggerBotTurn() {
             if (soloInternal.botHand.length === 0) {
                 setTimeout(() => {
                     handleSoloFinish(1, combo);
-                }, 1400);
+                }, 2000);
                 return;
             }
 
@@ -682,12 +683,18 @@ function triggerBotTurn() {
             // Bot passes
             sounds.playPass();
             gameState.opponent.passedTrick = true;
+            showBannerAlert(`⏭️ ${botAI.name.toUpperCase()} ĐÃ BỎ LƯỢT!`);
             showToast(`${botAI.name} đã bỏ lượt!`);
-
-            gameState.tableCombo = null; // Clear table
-            gameState.currentTurnSeat = 0;
             renderGameState();
-            startSoloTimer('PLAYING');
+
+            setTimeout(() => {
+                if (gameState.status !== 'PLAYING') return;
+                gameState.tableCombo = null; // Clear table
+                gameState.opponent.passedTrick = false;
+                gameState.currentTurnSeat = 0;
+                renderGameState();
+                startSoloTimer('PLAYING');
+            }, 1500);
         }
     }, thinkDelay);
 }
@@ -938,7 +945,7 @@ function handlePlayClick() {
         if (gameState.baoSamPlayerSeat === 1) {
             setTimeout(() => {
                 handleSoloDenSam(0, 1);
-            }, 1200);
+            }, 1800);
             return;
         }
 
@@ -952,7 +959,7 @@ function handlePlayClick() {
         if (gameState.myHand.length === 0) {
             setTimeout(() => {
                 handleSoloFinish(0, evalCombo);
-            }, 1200);
+            }, 1800);
             return;
         }
 
@@ -977,11 +984,18 @@ function handlePassClick() {
 
     if (isSoloMode) {
         sounds.playPass();
-        showToast('Bạn đã bỏ lượt!');
-        gameState.tableCombo = null; // Clear table
-        gameState.currentTurnSeat = 1;
+        gameState.passedTrick = true;
+        showBannerAlert('⏭️ BẠN ĐÃ BỎ LƯỢT!');
         renderGameState();
-        triggerBotTurn();
+
+        setTimeout(() => {
+            if (gameState.status !== 'PLAYING') return;
+            gameState.tableCombo = null; // Clear table
+            gameState.passedTrick = false;
+            gameState.currentTurnSeat = 1;
+            renderGameState();
+            triggerBotTurn();
+        }, 1500);
     } else if (socket) {
         socket.emit('pass_turn', { roomCode: gameState.roomCode });
     }
@@ -1130,13 +1144,14 @@ function checkAndExecuteAutoActions() {
             });
             const bestMove = playable[0];
             gameState.selectedCardIds = new Set(bestMove.map(c => c.id));
+            sounds.playCardSelect();
             renderMyHand();
-            showBannerAlert('⚡ TỰ ĐỘNG BẮT SÂM!');
+            showBannerAlert('⚡ ĐANG TỰ ĐỘNG BẮT SÂM...');
 
             autoActionTimeout = setTimeout(() => {
                 autoActionTimeout = null;
                 handlePlayClick();
-            }, 600);
+            }, 2000);
             return;
         }
     }
@@ -1149,19 +1164,25 @@ function checkAndExecuteAutoActions() {
         if (!contains2) {
             if (isFreeLead) {
                 gameState.selectedCardIds = new Set(gameState.myHand.map(c => c.id));
+                sounds.playCardSelect();
                 renderMyHand();
+                showToast(`⚡ Tự động đánh ${entireCombo.name} để về nhất...`);
+
                 autoActionTimeout = setTimeout(() => {
                     autoActionTimeout = null;
                     handlePlayClick();
-                }, 500);
+                }, 2000);
                 return;
             } else if (canBeat(gameState.tableCombo, entireCombo)) {
                 gameState.selectedCardIds = new Set(gameState.myHand.map(c => c.id));
+                sounds.playCardSelect();
                 renderMyHand();
+                showToast(`⚡ Tự động đánh ${entireCombo.name} để về nhất...`);
+
                 autoActionTimeout = setTimeout(() => {
                     autoActionTimeout = null;
                     handlePlayClick();
-                }, 500);
+                }, 2000);
                 return;
             }
         }
@@ -1322,6 +1343,10 @@ function renderMyHand() {
         myStatusTag.style.display = 'inline-block';
         myStatusTag.className = 'status-tag tag-bao1';
         myStatusTag.innerText = 'BÁO 1 LÁ';
+    } else if (gameState.passedTrick) {
+        myStatusTag.style.display = 'inline-block';
+        myStatusTag.className = 'status-tag tag-pass';
+        myStatusTag.innerText = 'BỎ LƯỢT';
     } else {
         myStatusTag.style.display = 'none';
     }
