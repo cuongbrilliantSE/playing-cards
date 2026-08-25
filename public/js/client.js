@@ -1018,6 +1018,10 @@ function handleSortHand() {
 let hintAdvisor = null;
 
 function handleHintMove() {
+    if (!isSoloMode) {
+        showToast('Nút gợi ý chỉ khả dụng trong chế độ luyện tập với Bot!');
+        return;
+    }
     if (gameState.status !== 'PLAYING' || gameState.currentTurnSeat !== gameState.mySeat) {
         showToast('Chưa đến lượt của bạn!');
         return;
@@ -1480,6 +1484,13 @@ function renderControls() {
 
         btnPlay.disabled = !isMyTurn;
         btnPass.disabled = !isMyTurn || isFreeLead;
+
+        const btnHint = document.getElementById('btnHintMove');
+        if (btnHint) {
+            // Phương án 1: Chỉ hiện nút Gợi ý trong chế độ Đấu với Bot (Solo), ẩn hoàn toàn khi Đấu Online (PvP)
+            btnHint.style.display = isSoloMode ? 'inline-block' : 'none';
+            btnHint.disabled = !isMyTurn;
+        }
     } else {
         baoSamControls.style.display = 'none';
         playingControls.style.display = 'none';
