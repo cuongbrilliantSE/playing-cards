@@ -692,13 +692,32 @@ function handleSoloFinish(winnerSeat, lastCombo) {
     const loserHand = isWinnerMe ? soloInternal.botHand : gameState.myHand;
     const isThoiHeo = lastCombo.cards.some(c => c.rank.value === '2');
 
-    let points = loserHand.length;
-    let details = [`${isWinnerMe ? botAI.name : 'Bạn'} còn ${loserHand.length} lá (+${loserHand.length} xu)`];
+    const loserCardCount = loserHand.length;
+    let points = 0;
+    let details = [];
+
+    if (loserCardCount === 10) {
+        points += 15;
+        details.push(`⚠️ ${isWinnerMe ? botAI.name : 'Bạn'} BỊ CÓNG (chưa đánh lá nào) (+15 xu)`);
+    } else {
+        points += loserCardCount;
+        details.push(`${isWinnerMe ? botAI.name : 'Bạn'} còn ${loserCardCount} lá (+${loserCardCount} xu)`);
+    }
 
     const unplayed2s = loserHand.filter(c => c.rank.value === '2').length;
     if (unplayed2s > 0) {
         points += unplayed2s * 10;
         details.push(`Thối ${unplayed2s} lá Hai (+${unplayed2s * 10} xu)`);
+    }
+
+    const rankCounts = {};
+    loserHand.forEach(c => {
+        rankCounts[c.rank.value] = (rankCounts[c.rank.value] || 0) + 1;
+    });
+    const unplayedQuads = Object.values(rankCounts).filter(c => c === 4).length;
+    if (unplayedQuads > 0) {
+        points += unplayedQuads * 15;
+        details.push(`Thối ${unplayedQuads} Tứ quý (+${unplayedQuads * 15} xu)`);
     }
 
     if (gameState.baoSamPlayerSeat !== -1) {

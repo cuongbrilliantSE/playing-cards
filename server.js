@@ -379,10 +379,15 @@ class GameRoom {
         let points = 0;
         let penaltyDetails = [];
 
-        // Loser remaining cards
+        // Loser remaining cards & Cóng check
         const loserCardCount = loser.hand.length;
-        points += loserCardCount;
-        penaltyDetails.push(`${loser.name} còn ${loserCardCount} lá (+${loserCardCount} điểm)`);
+        if (loserCardCount === 10) {
+            points += 15;
+            penaltyDetails.push(`⚠️ ${loser.name} BỊ CÓNG (chưa đánh lá nào) (+15 điểm)`);
+        } else {
+            points += loserCardCount;
+            penaltyDetails.push(`${loser.name} còn ${loserCardCount} lá (+${loserCardCount} điểm)`);
+        }
 
         // Check unplayed 2s and Tứ Quý in loser's hand (Thối heo / tứ quý)
         const unplayedTwos = loser.hand.filter(c => c.rank.value === '2').length;
