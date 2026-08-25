@@ -294,6 +294,13 @@ function connectSocket() {
             if (socket) socket.disconnect();
         });
 
+        socket.on('room_idle_timeout', (data) => {
+            showToast(data.msg || 'Phòng đã tự động hủy do chờ quá 5 phút!');
+            setTimeout(() => {
+                window.location.href = window.location.pathname;
+            }, 1500);
+        });
+
         socket.on('opponent_forfeit', (data) => {
             gameState.myScore = data.stayerScore;
             myProfile.score = data.stayerScore;

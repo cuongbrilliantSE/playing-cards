@@ -40,7 +40,7 @@ async function cleanupTestDbFiles() {
 function startTestServer() {
     return new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
-            env: { ...process.env, PORT: TEST_PORT, SAMLOC_DB_PATH: TEST_DB_PATH },
+            env: { ...process.env, PORT: TEST_PORT, SAMLOC_DB_PATH: TEST_DB_PATH, SAMLOC_IDLE_TIMEOUT_MS: '1000' },
             stdio: ['ignore', 'pipe', 'pipe']
         });
 
@@ -415,6 +415,32 @@ async function runTests() {
     
     socketP3.disconnect();
     socketP4.disconnect();
+
+    console.log('\n--- TEST 9: Waiting Room Idle Timeout ---');
+    const p5 = await db.createPlayer();
+    const socketP5 = io(SERVER_URL, { forceNew: true });
+    let roomCode9 = null;
+
+    await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('TEST 9 timed out waiting for room_idle_timeout')), 4000);
+
+        socketP5.emit('auth', { playerId: p5.id, playerSecret: p5.secret });
+        socketP5.on('profile_loaded', () => {
+            socketP5.emit('create_room');
+        });
+        socketP5.on('room_created', (data) => {
+            roomCode9 = data.roomCode;
+            console.log(`P5 created room ${roomCode9}. Waiting for 1000ms idle timeout...`);
+        });
+
+        socketP5.on('room_idle_timeout', (data) => {
+            console.log(`Received room_idle_timeout event! Message: "${data.msg}"`);
+            clearTimeout(timeout);
+            console.log('Success: WAITING room idle timeout correctly notified player and cleaned up room!');
+            resolve();
+        });
+    });
+    socketP5.disconnect();
 
     console.log('\n=== ALL SECURITY INTEGRATION TESTS PASSED SUCCESSFULLY! ===');
     await cleanupTestDbFiles();

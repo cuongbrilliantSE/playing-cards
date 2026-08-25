@@ -57,6 +57,24 @@ class GameRoom {
         this.turnTimer = null;
         this.turnTimeLeft = 0;
         this.phaseTimeLeft = 0;
+        this.idleTimeout = null;
+        this.reconnectTimeout = null;
+    }
+
+    startIdleTimeout(onTimeout, durationMs = 300000) {
+        this.clearIdleTimeout();
+        this.idleTimeout = setTimeout(() => {
+            if (this.status === 'WAITING' && this.players.length === 1) {
+                onTimeout();
+            }
+        }, durationMs);
+    }
+
+    clearIdleTimeout() {
+        if (this.idleTimeout) {
+            clearTimeout(this.idleTimeout);
+            this.idleTimeout = null;
+        }
     }
 
     addPlayer(socket, name, avatar, score = 1000) {
@@ -95,6 +113,7 @@ class GameRoom {
 
     startNewGame() {
         if (this.players.length < 2) return;
+        this.clearIdleTimeout();
         this.status = 'BAO_SAM';
         this.tableCombo = null;
         this.lastPlayedBy = -1;
@@ -515,11 +534,31 @@ class GameRoom {
     }
 }
 
+const WAITING_IDLE_TIMEOUT_MS = parseInt(process.env.SAMLOC_IDLE_TIMEOUT_MS, 10) || 300000;
+
+function attachRoomIdleTimeout(room) {
+    room.startIdleTimeout(() => {
+        console.log(`Room ${room.code} expired due to WAITING idle timeout.`);
+        const hostPlayer = room.players[0];
+        if (hostPlayer) {
+            const hostSocket = io.sockets.sockets.get(hostPlayer.id);
+            if (hostSocket) {
+                hostSocket.emit('room_idle_timeout', { msg: 'Phòng đã tự động hủy do chờ quá 5 phút!' });
+            }
+        }
+        if (room.turnTimer) clearInterval(room.turnTimer);
+        if (room.reconnectTimeout) clearTimeout(room.reconnectTimeout);
+        room.clearIdleTimeout();
+        rooms.delete(room.code);
+    }, WAITING_IDLE_TIMEOUT_MS);
+}
+
 function createAndJoinRoom(socket, profile) {
     const code = generateRoomCode();
     const room = new GameRoom(code, socket, profile.name, profile.avatar, profile.score);
     rooms.set(code, room);
     socket.join(code);
+    attachRoomIdleTimeout(room);
     socket.emit('room_created', { roomCode: code, seat: 0 });
     room.broadcastState();
     console.log(`Room created: ${code} by ${profile.name} (Score: ${room.players[0].score})`);
@@ -954,6 +993,7 @@ io.on('connection', (socket) => {
                         room.reconnectTimeout = null;
                     }
                     
+                    attachRoomIdleTimeout(room);
                     room.broadcastState();
                 }
             } else {
@@ -1106,6 +1146,7 @@ io.on('connection', (socket) => {
                                 room.turnTimer = null;
                             }
 
+                            attachRoomIdleTimeout(room);
                             room.broadcastState();
                         }
                     } else {
