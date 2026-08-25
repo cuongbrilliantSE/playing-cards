@@ -301,6 +301,39 @@ body {
     box-shadow: 0 0 0 var(--jade-deep);
 }
 
+.profile-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px dashed rgba(201, 162, 74, 0.2);
+}
+
+.stat-box {
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(201, 162, 74, 0.18);
+    border-radius: 4px;
+    padding: 8px 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+}
+
+.stat-label {
+    font-size: 0.72rem;
+    color: var(--ink-dim);
+    font-weight: 500;
+}
+
+.stat-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--gold-bright);
+}
+
 .coin-icon {
     display: inline-block;
     width: 16px;
@@ -1243,21 +1276,442 @@ body {
     z-index: 25;
 }
 
-@media (max-width: 600px) {
-    #roundEndModal .modal-box {
+/* ================= COMPREHENSIVE RESPONSIVE DESIGN ================= */
+
+/* --- Tablet & Medium Screens (<= 900px) --- */
+@media (max-width: 900px) {
+    :root {
+        --card-width: 96px;
+        --card-height: 138px;
+    }
+
+    .casino-table {
+        margin: 8px 12px;
+        padding: 12px 18px;
+    }
+
+    .hand-card-wrapper {
+        margin-left: -52px;
+    }
+
+    .game-logo {
+        font-size: 3.2rem;
+    }
+
+    .played-cards-container {
+        min-height: 148px;
+    }
+
+    .my-hand-container {
+        height: 168px;
+    }
+}
+
+/* --- Mobile Phones Portrait (<= 640px) --- */
+@media (max-width: 640px) {
+    :root {
+        --card-width: 72px;
+        --card-height: 104px;
+    }
+
+    /* Screen & Table Constraints */
+    .game-screen {
+        height: 100dvh;
+        overflow: hidden;
+    }
+
+    .game-header {
+        height: 44px;
+        padding: 0 10px;
+    }
+
+    .header-left, .header-right {
+        gap: 6px;
+    }
+
+    .room-badge {
+        padding: 3px 8px;
+        font-size: 0.75rem;
+        gap: 4px;
+    }
+
+    .btn-icon {
+        width: 32px;
+        height: 32px;
+        font-size: 0.9rem;
+    }
+
+    .casino-table {
+        margin: 4px 6px 6px;
+        padding: 6px 8px;
+        border: 4px solid var(--lacquer-2);
+        outline-offset: -6px;
+        border-radius: 8px;
+    }
+
+    /* Opponent Area */
+    .player-info-card {
+        padding: 4px 10px;
+        margin-bottom: 4px;
+        gap: 6px;
+    }
+
+    .player-avatar {
+        font-size: 1.25rem;
+    }
+
+    .player-name {
+        font-size: 0.8rem;
+    }
+
+    .player-score {
+        font-size: 0.7rem;
+    }
+
+    .status-tag {
+        font-size: 0.62rem;
+        padding: 1px 5px;
+    }
+
+    .opponent-cards-fan {
+        height: 52px;
+    }
+
+    .card-back-leaf {
+        width: 44px;
+        height: 64px;
+        margin-left: -26px;
+        border-radius: 4px;
+    }
+
+    .opponent-cards-count {
+        font-size: 0.7rem;
+        padding: 2px 7px;
+    }
+
+    /* Table Center */
+    .center-felt-logo {
+        font-size: 1.5rem;
+    }
+
+    .played-cards-container {
+        min-height: 110px;
+    }
+
+    .played-combo-title {
+        font-size: 0.7rem;
+        padding: 2px 8px;
+        top: -22px;
+    }
+
+    .banner-alert {
+        font-size: 0.95rem;
+        padding: 6px 14px;
+        top: 10%;
+    }
+
+    /* Controls & My Hand */
+    .action-controls-bar {
+        gap: 5px;
+        margin-bottom: 6px;
+    }
+
+    .turn-timer-badge {
+        width: 34px;
+        height: 34px;
+        font-size: 0.9rem;
+        border-width: 2px;
+    }
+
+    .btn-game {
+        padding: 6px 10px;
+        font-size: 0.75rem;
+        gap: 3px;
+    }
+
+    .my-hand-container {
+        height: 122px;
+        padding: 0 4px;
+    }
+
+    .hand-card-wrapper {
+        margin-left: -42px;
+    }
+
+    .card-item {
+        border-radius: 6px;
+    }
+
+    .card-item.selected {
+        transform: translateY(-16px);
+    }
+
+    /* Lobby Screen on Mobile */
+    .lobby-container {
+        padding: 24px 14px 20px;
+    }
+
+    .lobby-hero {
+        margin-bottom: 20px;
+    }
+
+    .game-logo {
+        font-size: 2.4rem;
+    }
+
+    .game-logo::after {
+        width: 36px;
+        height: 36px;
+        font-size: 1rem;
+        top: -12px;
+        right: -24px;
+    }
+
+    .game-tagline {
+        font-size: 0.8rem;
+    }
+
+    .profile-card {
+        padding: 16px 12px;
+        margin-bottom: 16px;
+    }
+
+    .avatar-selector {
+        gap: 8px;
+        margin: 12px 0;
+    }
+
+    .avatar-opt {
+        width: 42px;
+        height: 42px;
+        font-size: 1.4rem;
+    }
+
+    .profile-stats {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 6px;
+        margin-top: 14px;
+        padding-top: 10px;
+    }
+
+    .stat-box {
+        padding: 5px 4px;
+    }
+
+    .stat-label {
+        font-size: 0.68rem;
+    }
+
+    .stat-value {
+        font-size: 0.92rem;
+    }
+
+    .mode-row {
+        padding: 12px 6px;
+        gap: 10px;
+    }
+
+    .mode-icon {
+        width: 28px;
+        height: 28px;
+    }
+
+    .mode-title {
+        font-size: 0.98rem;
+    }
+
+    .mode-desc {
+        font-size: 0.78rem;
+    }
+
+    .join-row {
+        gap: 6px;
+    }
+
+    #joinRoomCodeInput {
+        max-width: 140px;
+        font-size: 0.82rem;
+        padding: 6px 8px;
+    }
+
+    /* Modals on Mobile */
+    .modal-box {
         max-width: 95vw;
         padding: 20px 14px;
     }
 
+    .modal-title {
+        font-size: 1.35rem;
+        margin-bottom: 10px;
+    }
+
+    .score-breakdown {
+        padding: 10px 12px;
+        margin: 12px 0;
+        font-size: 0.82rem;
+    }
+
     .mini-card-item {
-        width: 48px;
-        height: 68px;
+        width: 42px;
+        height: 60px;
     }
 
     .card-revealed-leaf {
-        width: 52px;
-        height: 74px;
-        margin-left: -24px;
+        width: 44px;
+        height: 64px;
+        margin-left: -20px;
+    }
+}
+
+/* --- Extra Small Phones (<= 380px e.g. iPhone SE) --- */
+@media (max-width: 380px) {
+    :root {
+        --card-width: 62px;
+        --card-height: 90px;
+    }
+
+    .hand-card-wrapper {
+        margin-left: -38px;
+    }
+
+    .my-hand-container {
+        height: 106px;
+    }
+
+    .btn-game {
+        padding: 5px 7px;
+        font-size: 0.7rem;
+    }
+
+    .turn-timer-badge {
+        width: 30px;
+        height: 30px;
+        font-size: 0.82rem;
+    }
+
+    .action-controls-bar {
+        gap: 4px;
+        margin-bottom: 4px;
+    }
+
+    .played-cards-container {
+        min-height: 96px;
+    }
+
+    .game-logo {
+        font-size: 2rem;
+    }
+}
+
+/* --- Mobile Landscape Mode (height <= 520px) --- */
+@media (max-height: 520px) and (orientation: landscape) {
+    :root {
+        --card-width: 54px;
+        --card-height: 78px;
+    }
+
+    .game-screen {
+        height: 100dvh;
+    }
+
+    .game-header {
+        height: 36px;
+        padding: 0 8px;
+    }
+
+    .btn-icon {
+        width: 26px;
+        height: 26px;
+        font-size: 0.8rem;
+    }
+
+    .room-badge {
+        padding: 2px 6px;
+        font-size: 0.68rem;
+    }
+
+    .casino-table {
+        margin: 2px 4px;
+        padding: 3px 6px;
+        border-width: 2px;
+        outline-offset: -3px;
+    }
+
+    .opponent-cards-fan {
+        height: 40px;
+    }
+
+    .card-back-leaf {
+        width: 36px;
+        height: 50px;
+        margin-left: -20px;
+    }
+
+    .opponent-cards-count {
+        padding: 1px 5px;
+        font-size: 0.65rem;
+    }
+
+    .player-info-card {
+        padding: 2px 8px;
+        margin-bottom: 1px;
+        gap: 6px;
+    }
+
+    .player-avatar {
+        font-size: 0.95rem;
+    }
+
+    .player-name {
+        font-size: 0.72rem;
+    }
+
+    .player-score {
+        font-size: 0.65rem;
+    }
+
+    .played-cards-container {
+        min-height: 82px;
+    }
+
+    .played-combo-title {
+        font-size: 0.65rem;
+        padding: 1px 6px;
+        top: -16px;
+    }
+
+    .banner-alert {
+        font-size: 0.85rem;
+        padding: 4px 12px;
+    }
+
+    .action-controls-bar {
+        gap: 4px;
+        margin-bottom: 2px;
+    }
+
+    .btn-game {
+        padding: 3px 8px;
+        font-size: 0.68rem;
+    }
+
+    .turn-timer-badge {
+        width: 26px;
+        height: 26px;
+        font-size: 0.72rem;
+    }
+
+    .my-hand-container {
+        height: 86px;
+        padding: 0 2px;
+    }
+
+    .hand-card-wrapper {
+        margin-left: -32px;
+    }
+
+    .card-item.selected {
+        transform: translateY(-12px);
     }
 }
 
