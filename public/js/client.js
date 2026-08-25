@@ -38,7 +38,8 @@ let gameState = {
     turnTimeLeft: 20,
     phaseTimeLeft: 15,
     timerInterval: null,
-    opponentRevealedHand: []
+    opponentRevealedHand: [],
+    lastWinnerSeat: 0
 };
 
 function updateStatsDisplay() {
@@ -468,6 +469,7 @@ function startSoloBotMode() {
     showToast('🎮 Đấu với Bot: Trận đấu tập luyện, điểm số sẽ không được lưu vào tài khoản.');
     gameState.roomCode = 'SOLO-BOT';
     gameState.mySeat = 0;
+    gameState.lastWinnerSeat = 0;
     gameState.myScore = myProfile.score;
     gameState.opponent = {
         name: botAI.name,
@@ -518,6 +520,7 @@ function startSoloGame() {
             gameState.opponent.score += points;
         }
 
+        gameState.lastWinnerSeat = isMe ? 0 : 1;
         showRoundEndModal({
             winnerSeat: isMe ? 0 : 1,
             winnerName: isMe ? myProfile.name : botAI.name,
@@ -557,7 +560,7 @@ function startSoloGame() {
 
 function resolveSoloBaoSam() {
     if (gameState.myBaoSam && gameState.opponent.baoSam) {
-        gameState.baoSamPlayerSeat = 0; // priority to user
+        gameState.baoSamPlayerSeat = gameState.lastWinnerSeat; // Priority to previous winner if both call Sâm
     } else if (gameState.myBaoSam) {
         gameState.baoSamPlayerSeat = 0;
     } else if (gameState.opponent.baoSam) {
@@ -573,7 +576,8 @@ function resolveSoloBaoSam() {
     }
 
     gameState.status = 'PLAYING';
-    gameState.currentTurnSeat = gameState.baoSamPlayerSeat !== -1 ? gameState.baoSamPlayerSeat : 0;
+    // If someone called Sâm, they go first. Otherwise previous round winner goes first!
+    gameState.currentTurnSeat = gameState.baoSamPlayerSeat !== -1 ? gameState.baoSamPlayerSeat : gameState.lastWinnerSeat;
     renderGameState();
 
     if (gameState.currentTurnSeat === 1) {
@@ -751,6 +755,7 @@ function handleSoloFinish(winnerSeat, lastCombo) {
     }
 
     const effectiveWinnerSeat = isThoiHeo ? 1 - winnerSeat : winnerSeat;
+    gameState.lastWinnerSeat = effectiveWinnerSeat;
     if (soloInternal.botHand) {
         gameState.opponentRevealedHand = soloInternal.botHand;
     }
@@ -776,6 +781,7 @@ function handleSoloDenSam(interceptorSeat, sâmPlayerSeat) {
     const winnerName = isWinnerMe ? myProfile.name : botAI.name;
     const loserName = isWinnerMe ? botAI.name : 'BẠN';
     const points = 25;
+    gameState.lastWinnerSeat = interceptorSeat;
 
     if (isWinnerMe) {
         gameState.myScore += points;
@@ -1049,11 +1055,87 @@ function applyGameState(state) {
     renderGameState();
 }
 
+let autoActionTimeout = null;
+
+function checkAndExecuteAutoActions() {
+    if (gameState.status !== 'PLAYING') {
+        if (autoActionTimeout) {
+            clearTimeout(autoActionTimeout);
+            autoActionTimeout = null;
+        }
+        return;
+    }
+    if (gameState.currentTurnSeat !== gameState.mySeat) return;
+    if (!gameState.myHand || gameState.myHand.length === 0) return;
+
+    if (autoActionTimeout) {
+        clearTimeout(autoActionTimeout);
+        autoActionTimeout = null;
+    }
+
+    const isFreeLead = !gameState.tableCombo || gameState.tableCombo.type === COMBO_TYPES.INVALID || gameState.lastPlayedBy === gameState.mySeat;
+    const isOpponentSam = gameState.baoSamPlayerSeat !== -1 && gameState.baoSamPlayerSeat !== gameState.mySeat;
+
+    // 1. TỰ ĐỘNG CHẶN / BẮT SÂM KHI ĐỐI THỦ BÁO SÂM
+    if (isOpponentSam && !isFreeLead) {
+        const playable = findPlayableCombinations(gameState.myHand, gameState.tableCombo);
+        if (playable.length > 0) {
+            // Pick lowest power beating combo to conserve cards
+            playable.sort((a, b) => {
+                const evA = evaluateCombination(a);
+                const evB = evaluateCombination(b);
+                return evA.power - evB.power;
+            });
+            const bestMove = playable[0];
+            gameState.selectedCardIds = new Set(bestMove.map(c => c.id));
+            renderMyHand();
+            showBannerAlert('⚡ TỰ ĐỘNG BẮT SÂM!');
+
+            autoActionTimeout = setTimeout(() => {
+                autoActionTimeout = null;
+                handlePlayClick();
+            }, 600);
+            return;
+        }
+    }
+
+    // 2. TỰ ĐỘNG ĐÁNH LÁ CUỐI CÙNG NẾU THỎA MÃN
+    if (gameState.myHand.length === 1) {
+        const lastCard = gameState.myHand[0];
+        // Luật Sâm Lốc: Không được về bằng quân 2
+        if (lastCard.rank.value === '2') {
+            return;
+        }
+
+        if (isFreeLead) {
+            gameState.selectedCardIds = new Set([lastCard.id]);
+            renderMyHand();
+            autoActionTimeout = setTimeout(() => {
+                autoActionTimeout = null;
+                handlePlayClick();
+            }, 500);
+            return;
+        } else {
+            const ev = evaluateCombination([lastCard]);
+            if (canBeat(gameState.tableCombo, ev)) {
+                gameState.selectedCardIds = new Set([lastCard.id]);
+                renderMyHand();
+                autoActionTimeout = setTimeout(() => {
+                    autoActionTimeout = null;
+                    handlePlayClick();
+                }, 500);
+                return;
+            }
+        }
+    }
+}
+
 function renderGameState() {
     renderOpponent();
     renderTableCenter();
     renderMyHand();
     renderControls();
+    checkAndExecuteAutoActions();
 }
 
 function renderOpponent() {
