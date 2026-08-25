@@ -203,6 +203,10 @@ function checkUrlForRoomCode() {
     const roomParam = params.get('room');
     if (roomParam) {
         document.getElementById('joinRoomCodeInput').value = roomParam;
+        // Clean URL parameter in browser history so refreshing later doesn't force re-join
+        window.history.replaceState({}, document.title, window.location.pathname);
+        showToast(`Đang tự động vào phòng ${roomParam}...`);
+        startOnlineMode('JOIN', roomParam);
     }
 }
 
