@@ -1141,26 +1141,22 @@ function checkAndExecuteAutoActions() {
         }
     }
 
-    // 2. TỰ ĐỘNG ĐÁNH LÁ CUỐI CÙNG NẾU THỎA MÃN
-    if (gameState.myHand.length === 1) {
-        const lastCard = gameState.myHand[0];
-        // Luật Sâm Lốc: Không được về bằng quân 2
-        if (lastCard.rank.value === '2') {
-            return;
-        }
-
-        if (isFreeLead) {
-            gameState.selectedCardIds = new Set([lastCard.id]);
-            renderMyHand();
-            autoActionTimeout = setTimeout(() => {
-                autoActionTimeout = null;
-                handlePlayClick();
-            }, 500);
-            return;
-        } else {
-            const ev = evaluateCombination([lastCard]);
-            if (canBeat(gameState.tableCombo, ev)) {
-                gameState.selectedCardIds = new Set([lastCard.id]);
+    // 2. TỰ ĐỘNG ĐÁNH TOÀN BỘ BÀI CUỐI CÙNG NẾU LÀ 1 TỔ HỢP HỢP LỆ ĐỂ VỀ NHẤT (1 lá, đôi, ba, sảnh, tứ quý)
+    const entireCombo = evaluateCombination(gameState.myHand);
+    if (entireCombo.type !== COMBO_TYPES.INVALID) {
+        const contains2 = gameState.myHand.some(c => c.rank.value === '2');
+        // Luật Sâm Lốc: Tuyệt đối không được về bằng quân 2 (hoặc đôi 2)
+        if (!contains2) {
+            if (isFreeLead) {
+                gameState.selectedCardIds = new Set(gameState.myHand.map(c => c.id));
+                renderMyHand();
+                autoActionTimeout = setTimeout(() => {
+                    autoActionTimeout = null;
+                    handlePlayClick();
+                }, 500);
+                return;
+            } else if (canBeat(gameState.tableCombo, entireCombo)) {
+                gameState.selectedCardIds = new Set(gameState.myHand.map(c => c.id));
                 renderMyHand();
                 autoActionTimeout = setTimeout(() => {
                     autoActionTimeout = null;
