@@ -107,6 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initLobby();
     initGameControls();
     initEmotes();
+    VoiceChatManager.init();
     checkUrlForRoomCode();
 });
 
@@ -350,6 +351,12 @@ function connectSocket() {
             showScreen('gameScreen');
             updateRoomHeader();
             showToast(`Đã vào phòng ${data.roomCode}! Trận đấu bắt đầu!`);
+            // Initiate WebRTC voice connection from joiner (seat 1) to host (seat 0)
+            if (data.seat === 1) {
+                setTimeout(() => {
+                    VoiceChatManager.start(true);
+                }, 600);
+            }
         });
 
         socket.on('join_error', (data) => {
@@ -420,11 +427,30 @@ function connectSocket() {
         socket.on('player_left', (data) => {
             showToast(`${data.name} đã rời khỏi bàn chơi!`);
             gameState.opponent = null;
+            VoiceChatManager.stop();
             renderOpponent();
         });
 
         socket.on('room_left', () => {
+            VoiceChatManager.stop();
             window.location.href = window.location.pathname;
+        });
+
+        // ================= WebRTC Voice Chat Events =================
+        socket.on('webrtc_offer', (data) => {
+            VoiceChatManager.handleOffer(data.sdp);
+        });
+
+        socket.on('webrtc_answer', (data) => {
+            VoiceChatManager.handleAnswer(data.sdp);
+        });
+
+        socket.on('webrtc_ice_candidate', (data) => {
+            VoiceChatManager.handleCandidate(data.candidate);
+        });
+
+        socket.on('webrtc_voice_state', (data) => {
+            VoiceChatManager.handleVoiceState(data);
         });
     }
 }
@@ -1722,3 +1748,363 @@ function renderFloatingEmote(emote, seat) {
         el.remove();
     }, 2000);
 }
+
+// ================= WEBRTC VOICE CHAT MANAGER =================
+const VoiceChatManager = {
+    peerConnection: null,
+    localStream: null,
+    audioContext: null,
+    analyser: null,
+    vadInterval: null,
+    isMicMuted: false,
+    isDeafened: false,
+    isSpeaking: false,
+    iceCandidatesQueue: [],
+    rtcConfig: {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' }
+        ]
+    },
+
+    init() {
+        const btnMic = document.getElementById('btnToggleMic');
+        const btnDeafen = document.getElementById('btnToggleDeafen');
+
+        if (btnMic) {
+            btnMic.addEventListener('click', () => this.toggleMic());
+        }
+        if (btnDeafen) {
+            btnDeafen.addEventListener('click', () => this.toggleDeafen());
+        }
+    },
+
+    async ensureLocalStream() {
+        if (this.localStream) return this.localStream;
+        try {
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                },
+                video: false
+            });
+            this.setupVAD();
+            this.updateMicUI();
+            return this.localStream;
+        } catch (err) {
+            console.warn('Microphone access denied or unavailable:', err);
+            showToast('Không thể truy cập Micro. Vui lòng cấp quyền micro để đàm thoại!');
+            this.isMicMuted = true;
+            this.updateMicUI();
+            return null;
+        }
+    },
+
+    setupVAD() {
+        if (!this.localStream) return;
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+            this.audioContext = new AudioCtx();
+            const source = this.audioContext.createMediaStreamSource(this.localStream);
+            this.analyser = this.audioContext.createAnalyser();
+            this.analyser.fftSize = 256;
+            this.analyser.smoothingTimeConstant = 0.4;
+            source.connect(this.analyser);
+
+            const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+            if (this.vadInterval) clearInterval(this.vadInterval);
+
+            this.vadInterval = setInterval(() => {
+                if (this.isMicMuted || !this.localStream) {
+                    if (this.isSpeaking) {
+                        this.setSpeaking(false);
+                    }
+                    return;
+                }
+                this.analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    sum += dataArray[i];
+                }
+                const avg = sum / dataArray.length;
+                const speakingNow = avg > 20; // Voice activity threshold
+
+                if (speakingNow !== this.isSpeaking) {
+                    this.setSpeaking(speakingNow);
+                }
+            }, 150);
+        } catch (e) {
+            console.warn('VAD AudioContext initialization error:', e);
+        }
+    },
+
+    setSpeaking(speaking) {
+        this.isSpeaking = speaking;
+        const myAvatar = document.getElementById('myAvatar');
+        const myCard = document.getElementById('myProfileCard');
+        if (myAvatar) myAvatar.classList.toggle('is-speaking', speaking);
+        if (myCard) myCard.classList.toggle('is-speaking', speaking);
+
+        if (socket && gameState.roomCode && !isSoloMode) {
+            socket.emit('webrtc_voice_state', {
+                roomCode: gameState.roomCode,
+                isMuted: this.isMicMuted,
+                isSpeaking: speaking
+            });
+        }
+    },
+
+    async start(isCaller) {
+        if (isSoloMode) {
+            showToast('Voice Chat chỉ hoạt động khi chơi trực tuyến với người thật!');
+            return;
+        }
+
+        const stream = await this.ensureLocalStream();
+        this.cleanupPeerConnection();
+
+        try {
+            this.peerConnection = new RTCPeerConnection(this.rtcConfig);
+
+            if (stream) {
+                stream.getTracks().forEach(track => {
+                    this.peerConnection.addTrack(track, stream);
+                });
+            }
+
+            this.peerConnection.ontrack = (event) => {
+                const remoteAudio = document.getElementById('remoteVoiceAudio');
+                if (remoteAudio && event.streams && event.streams[0]) {
+                    remoteAudio.srcObject = event.streams[0];
+                    remoteAudio.play().catch(err => console.warn('Remote audio autoplay waiting for user gesture:', err));
+                }
+            };
+
+            this.peerConnection.onicecandidate = (event) => {
+                if (event.candidate && socket && gameState.roomCode) {
+                    socket.emit('webrtc_ice_candidate', {
+                        roomCode: gameState.roomCode,
+                        candidate: event.candidate
+                    });
+                }
+            };
+
+            this.peerConnection.oniceconnectionstatechange = () => {
+                console.log('WebRTC ICE Connection State:', this.peerConnection.iceConnectionState);
+                if (this.peerConnection.iceConnectionState === 'connected') {
+                    showToast('🎙️ Đã kết nối Voice Chat với đối thủ!');
+                }
+            };
+
+            if (isCaller) {
+                const offer = await this.peerConnection.createOffer({
+                    offerToReceiveAudio: true
+                });
+                await this.peerConnection.setLocalDescription(offer);
+                if (socket && gameState.roomCode) {
+                    socket.emit('webrtc_offer', {
+                        roomCode: gameState.roomCode,
+                        sdp: offer
+                    });
+                }
+            }
+        } catch (err) {
+            console.error('Error starting WebRTC Voice Connection:', err);
+        }
+    },
+
+    async handleOffer(sdp) {
+        if (isSoloMode) return;
+        const stream = await this.ensureLocalStream();
+        this.cleanupPeerConnection();
+
+        try {
+            this.peerConnection = new RTCPeerConnection(this.rtcConfig);
+
+            if (stream) {
+                stream.getTracks().forEach(track => {
+                    this.peerConnection.addTrack(track, stream);
+                });
+            }
+
+            this.peerConnection.ontrack = (event) => {
+                const remoteAudio = document.getElementById('remoteVoiceAudio');
+                if (remoteAudio && event.streams && event.streams[0]) {
+                    remoteAudio.srcObject = event.streams[0];
+                    remoteAudio.play().catch(err => console.warn('Remote audio autoplay waiting for user gesture:', err));
+                }
+            };
+
+            this.peerConnection.onicecandidate = (event) => {
+                if (event.candidate && socket && gameState.roomCode) {
+                    socket.emit('webrtc_ice_candidate', {
+                        roomCode: gameState.roomCode,
+                        candidate: event.candidate
+                    });
+                }
+            };
+
+            await this.peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
+
+            // Flush any buffered candidates
+            while (this.iceCandidatesQueue.length > 0) {
+                const candidate = this.iceCandidatesQueue.shift();
+                await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn(e));
+            }
+
+            const answer = await this.peerConnection.createAnswer();
+            await this.peerConnection.setLocalDescription(answer);
+
+            if (socket && gameState.roomCode) {
+                socket.emit('webrtc_answer', {
+                    roomCode: gameState.roomCode,
+                    sdp: answer
+                });
+            }
+        } catch (err) {
+            console.error('Error handling WebRTC offer:', err);
+        }
+    },
+
+    async handleAnswer(sdp) {
+        if (!this.peerConnection) return;
+        try {
+            await this.peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
+            while (this.iceCandidatesQueue.length > 0) {
+                const candidate = this.iceCandidatesQueue.shift();
+                await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn(e));
+            }
+        } catch (err) {
+            console.error('Error handling WebRTC answer:', err);
+        }
+    },
+
+    async handleCandidate(candidate) {
+        if (!this.peerConnection || !this.peerConnection.remoteDescription) {
+            this.iceCandidatesQueue.push(candidate);
+            return;
+        }
+        try {
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+            console.warn('Error adding ICE candidate:', err);
+        }
+    },
+
+    handleVoiceState(data) {
+        const oppAvatar = document.getElementById('opponentAvatar');
+        const oppCard = document.getElementById('opponentCard');
+        if (oppAvatar) {
+            oppAvatar.classList.toggle('is-speaking', !!data.isSpeaking);
+        }
+        if (oppCard) {
+            oppCard.classList.toggle('is-speaking', !!data.isSpeaking);
+        }
+    },
+
+    async toggleMic() {
+        if (isSoloMode) {
+            showToast('Voice Chat chỉ hoạt động khi chơi trực tuyến với người thật!');
+            return;
+        }
+
+        if (!this.localStream) {
+            await this.start(gameState.mySeat === 0);
+            return;
+        }
+
+        this.isMicMuted = !this.isMicMuted;
+        this.localStream.getAudioTracks().forEach(t => {
+            t.enabled = !this.isMicMuted;
+        });
+
+        if (this.isMicMuted) {
+            this.setSpeaking(false);
+        }
+
+        this.updateMicUI();
+        showToast(this.isMicMuted ? '🔇 Đã tắt Micro' : '🎙️ Đã mở Micro');
+    },
+
+    toggleDeafen() {
+        this.isDeafened = !this.isDeafened;
+        const remoteAudio = document.getElementById('remoteVoiceAudio');
+        if (remoteAudio) {
+            remoteAudio.muted = this.isDeafened;
+        }
+        this.updateDeafenUI();
+        showToast(this.isDeafened ? '🔈 Đã tắt loa đối thủ' : '🔊 Đã mở loa đối thủ');
+    },
+
+    updateMicUI() {
+        const btnMic = document.getElementById('btnToggleMic');
+        const micIcon = document.getElementById('micIcon');
+        if (!btnMic || !micIcon) return;
+
+        if (this.isMicMuted) {
+            micIcon.innerText = '🔇';
+            btnMic.classList.remove('active');
+            btnMic.classList.add('muted');
+            btnMic.title = 'Micro đang tắt (Bấm để bật)';
+        } else {
+            micIcon.innerText = '🎙️';
+            btnMic.classList.add('active');
+            btnMic.classList.remove('muted');
+            btnMic.title = 'Micro đang bật (Bấm để tắt)';
+        }
+    },
+
+    updateDeafenUI() {
+        const btnDeafen = document.getElementById('btnToggleDeafen');
+        const deafenIcon = document.getElementById('deafenIcon');
+        if (!btnDeafen || !deafenIcon) return;
+
+        if (this.isDeafened) {
+            deafenIcon.innerText = '🔈';
+            btnDeafen.classList.add('muted');
+            btnDeafen.title = 'Loa đối thủ đang tắt (Bấm để bật)';
+        } else {
+            deafenIcon.innerText = '🔊';
+            btnDeafen.classList.remove('muted');
+            btnDeafen.title = 'Loa đối thủ đang mở (Bấm để tắt)';
+        }
+    },
+
+    cleanupPeerConnection() {
+        if (this.peerConnection) {
+            try {
+                this.peerConnection.close();
+            } catch (e) {}
+            this.peerConnection = null;
+        }
+        this.iceCandidatesQueue = [];
+    },
+
+    stop() {
+        if (this.vadInterval) {
+            clearInterval(this.vadInterval);
+            this.vadInterval = null;
+        }
+        if (this.audioContext) {
+            try {
+                this.audioContext.close();
+            } catch (e) {}
+            this.audioContext = null;
+        }
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(t => t.stop());
+            this.localStream = null;
+        }
+        this.cleanupPeerConnection();
+        this.setSpeaking(false);
+        this.handleVoiceState({ isSpeaking: false });
+        const remoteAudio = document.getElementById('remoteVoiceAudio');
+        if (remoteAudio) {
+            remoteAudio.srcObject = null;
+        }
+    }
+};

@@ -934,6 +934,59 @@ io.on('connection', (socket) => {
         }
     });
 
+    // ================= WebRTC Voice Chat Signaling =================
+    socket.on('webrtc_offer', ({ roomCode, sdp }) => {
+        const room = rooms.get(roomCode);
+        if (!room) return;
+        const opponent = room.players.find(p => p.id !== socket.id);
+        if (opponent) {
+            io.to(opponent.id).emit('webrtc_offer', {
+                fromSeat: room.getPlayerBySocketId(socket.id)?.seat,
+                sdp
+            });
+        }
+    });
+
+    socket.on('webrtc_answer', ({ roomCode, sdp }) => {
+        const room = rooms.get(roomCode);
+        if (!room) return;
+        const opponent = room.players.find(p => p.id !== socket.id);
+        if (opponent) {
+            io.to(opponent.id).emit('webrtc_answer', {
+                fromSeat: room.getPlayerBySocketId(socket.id)?.seat,
+                sdp
+            });
+        }
+    });
+
+    socket.on('webrtc_ice_candidate', ({ roomCode, candidate }) => {
+        const room = rooms.get(roomCode);
+        if (!room) return;
+        const opponent = room.players.find(p => p.id !== socket.id);
+        if (opponent) {
+            io.to(opponent.id).emit('webrtc_ice_candidate', {
+                fromSeat: room.getPlayerBySocketId(socket.id)?.seat,
+                candidate
+            });
+        }
+    });
+
+    socket.on('webrtc_voice_state', ({ roomCode, isMuted, isSpeaking }) => {
+        const room = rooms.get(roomCode);
+        if (!room) return;
+        const player = room.getPlayerBySocketId(socket.id);
+        if (player) {
+            const opponent = room.players.find(p => p.id !== socket.id);
+            if (opponent) {
+                io.to(opponent.id).emit('webrtc_voice_state', {
+                    seat: player.seat,
+                    isMuted,
+                    isSpeaking
+                });
+            }
+        }
+    });
+
     socket.on('leave_room', async ({ roomCode }) => {
         const room = rooms.get(roomCode);
         if (!room) {

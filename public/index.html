@@ -120,11 +120,16 @@
             </div>
 
             <div class="header-right">
+                <button id="btnToggleMic" class="btn-icon btn-voice" title="Bật/Tắt Micro nói chuyện"><span id="micIcon">🎙️</span></button>
+                <button id="btnToggleDeafen" class="btn-icon btn-voice" title="Bật/Tắt Loa đối thủ"><span id="deafenIcon">🔊</span></button>
                 <button id="btnToggleEmote" class="btn-icon" title="Biểu cảm">😀</button>
                 <button id="btnSoundToggle" class="btn-icon" title="Âm thanh"><span id="soundIcon">🔊</span></button>
                 <button id="btnLeaveRoom" class="btn-icon" title="Rời bàn">🚪</button>
             </div>
         </div>
+
+        <!-- Hidden Audio Element for WebRTC Remote Voice Stream -->
+        <audio id="remoteVoiceAudio" autoplay playsinline style="display: none;"></audio>
 
         <!-- Casino Table Surface -->
         <div class="casino-table">

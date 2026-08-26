@@ -517,6 +517,23 @@ body {
     transform: scale(1.05);
 }
 
+.btn-icon.btn-voice {
+    position: relative;
+    transition: all 0.2s ease;
+}
+
+.btn-icon.btn-voice.active {
+    background: rgba(63, 130, 100, 0.25);
+    border-color: var(--jade);
+    box-shadow: 0 0 10px rgba(63, 130, 100, 0.4);
+}
+
+.btn-icon.btn-voice.muted {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.6);
+    color: #fca5a5;
+}
+
 /* Casino Table -> Lacquer Tray. A single printed double-rule border,
    like the edge of a game board, rather than stacked glow layers. */
 .casino-table {
@@ -553,6 +570,7 @@ body {
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
     margin-bottom: 8px;
     z-index: 10;
+    transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .player-info-card.active-turn {
@@ -560,8 +578,30 @@ body {
     box-shadow: 0 0 0 3px rgba(201, 162, 74, 0.15), 0 0 18px rgba(201, 162, 74, 0.4);
 }
 
+.player-info-card.is-speaking {
+    border-color: var(--jade) !important;
+    box-shadow: 0 0 0 2px rgba(63, 130, 100, 0.3), 0 0 16px rgba(63, 130, 100, 0.6) !important;
+}
+
 .player-avatar {
     font-size: 1.6rem;
+    position: relative;
+    transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2), filter 0.2s;
+}
+
+.player-avatar.is-speaking {
+    animation: avatarVoicePulse 0.5s infinite alternate ease-in-out;
+}
+
+@keyframes avatarVoicePulse {
+    0% {
+        transform: scale(1);
+        filter: drop-shadow(0 0 4px rgba(63, 130, 100, 0.7));
+    }
+    100% {
+        transform: scale(1.18);
+        filter: drop-shadow(0 0 12px rgba(63, 130, 100, 1)) drop-shadow(0 0 20px #52c41a);
+    }
 }
 
 .player-name-wrap {
