@@ -194,6 +194,12 @@
                     <!-- Turn Timer Countdown -->
                     <div class="turn-timer-badge" id="turnTimerBadge">20</div>
 
+                    <!-- Waiting Phase Controls (Room Lobby) -->
+                    <div id="waitingControls" style="display: none; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap;">
+                        <button id="btnStartGameHost" class="btn-game btn-play" style="display: none;">▶️ BẮT ĐẦU VÁN ĐẤU</button>
+                        <div id="waitingStatusMsg" style="color: #cbd5e1; font-weight: 700; font-size: 0.95rem; text-shadow: 0 1px 3px rgba(0,0,0,0.6);">Đang chờ người chơi vào bàn... (1/4)</div>
+                    </div>
+
                     <!-- Báo Sâm Phase Controls -->
                     <div id="baoSamControls" style="display: none; gap: 10px;">
                         <button id="btnBaoSam" class="btn-game btn-sam">⚡ BÁO SÂM</button>
@@ -313,6 +319,31 @@
             <p class="modal-message" id="opponentForfeitDesc" style="margin: 15px 0; line-height: 1.6;"></p>
             <div style="text-align: center; margin-top: 20px;">
                 <button id="btnForfeitExit" onclick="document.getElementById('opponentForfeitModal').classList.remove('show'); window.location.href=window.location.pathname;" class="btn-game btn-play" style="min-width: 160px; margin: 0 auto;">Quay về Sảnh</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= 7. SOLO BOT PLAYER COUNT SELECTOR MODAL ================= -->
+    <div class="modal-backdrop" id="soloSelectModal">
+        <div class="modal-box modal-box--confirm" style="max-width: 440px;">
+            <h2 class="modal-title" style="color: var(--gold-bright);">🎮 CHỌN BÀN ĐẤU VỚI MÁY</h2>
+            <p class="modal-message" style="margin-bottom: 18px;">Chọn số lượng người chơi trên bàn để luyện tập:</p>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <button id="btnSolo2P" class="btn-game btn-play" style="width: 100%; justify-content: space-between; display: flex; padding: 12px 18px;">
+                    <span>👥 Bàn 2 người (1 vs 1)</span>
+                    <span style="color: #fbbf24; font-size: 0.9rem;">1 Bot 🐯</span>
+                </button>
+                <button id="btnSolo3P" class="btn-game btn-play" style="width: 100%; justify-content: space-between; display: flex; padding: 12px 18px;">
+                    <span>👥 Bàn 3 người</span>
+                    <span style="color: #fbbf24; font-size: 0.9rem;">2 Bot 🐯👑</span>
+                </button>
+                <button id="btnSolo4P" class="btn-game btn-play" style="width: 100%; justify-content: space-between; display: flex; padding: 12px 18px;">
+                    <span>👥 Bàn 4 người (Tiêu chuẩn)</span>
+                    <span style="color: #fbbf24; font-size: 0.9rem;">3 Bot 🐯👑🐉</span>
+                </button>
+            </div>
+            <div style="text-align: center; margin-top: 16px;">
+                <button id="btnCloseSoloModal" class="btn-game btn-utility" style="min-width: 120px;">ĐÓNG</button>
             </div>
         </div>
     </div>

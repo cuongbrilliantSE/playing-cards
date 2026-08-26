@@ -130,6 +130,12 @@ class GameRoom {
         this.playedHistory = [];
         this.baoSamPlayerSeat = -1;
 
+        // Pick a random starter on round 1 (or if previous winner is no longer in room)
+        if (this.lastWinnerSeat === -1 || !this.players.some(p => p.seat === this.lastWinnerSeat)) {
+            const randomPlayer = this.players[Math.floor(Math.random() * this.players.length)];
+            this.lastWinnerSeat = randomPlayer ? randomPlayer.seat : this.players[0].seat;
+        }
+
         // Deal 10 cards to each player from shuffled 52-card deck
         const deck = rules.shuffleDeck(rules.createDeck());
         this.players.forEach((p, idx) => {
@@ -879,8 +885,8 @@ io.on('connection', (socket) => {
                 socket.emit('room_joined', { roomCode, seat: player.seat });
                 console.log(`${profile.name} joined room ${roomCode} at seat ${player.seat}`);
                 
-                // If 2 or more players joined, start or broadcast state
-                if (room.players.length >= 2) {
+                // If 4 players joined, auto start! If 2 or 3 players, broadcast waiting state so Host can start or wait for 4
+                if (room.players.length === 4) {
                     room.startNewGame();
                 } else {
                     room.broadcastState();
@@ -937,7 +943,11 @@ io.on('connection', (socket) => {
                     const player = targetRoom.getPlayerBySocketId(socket.id);
                     socket.join(targetRoom.code);
                     socket.emit('room_joined', { roomCode: targetRoom.code, seat: player.seat });
-                    targetRoom.startNewGame();
+                    if (targetRoom.players.length === 4) {
+                        targetRoom.startNewGame();
+                    } else {
+                        targetRoom.broadcastState();
+                    }
                 } else {
                     createAndJoinRoom(socket, profile);
                 }

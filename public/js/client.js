@@ -186,7 +186,32 @@ function initLobby() {
     });
 
     document.getElementById('btnPlayVsBot').addEventListener('click', () => {
-        startSoloBotMode();
+        const modal = document.getElementById('soloSelectModal');
+        if (modal) modal.classList.add('show');
+        else startSoloBotMode(4);
+    });
+
+    const btn2P = document.getElementById('btnSolo2P');
+    if (btn2P) btn2P.addEventListener('click', () => {
+        document.getElementById('soloSelectModal').classList.remove('show');
+        startSoloBotMode(2);
+    });
+
+    const btn3P = document.getElementById('btnSolo3P');
+    if (btn3P) btn3P.addEventListener('click', () => {
+        document.getElementById('soloSelectModal').classList.remove('show');
+        startSoloBotMode(3);
+    });
+
+    const btn4P = document.getElementById('btnSolo4P');
+    if (btn4P) btn4P.addEventListener('click', () => {
+        document.getElementById('soloSelectModal').classList.remove('show');
+        startSoloBotMode(4);
+    });
+
+    const btnCloseSolo = document.getElementById('btnCloseSoloModal');
+    if (btnCloseSolo) btnCloseSolo.addEventListener('click', () => {
+        document.getElementById('soloSelectModal').classList.remove('show');
     });
 
     document.getElementById('btnRulesModal').addEventListener('click', () => {
@@ -403,17 +428,26 @@ function connectSocket() {
         });
 
         socket.on('round_end', (data) => {
-            if (data.players) {
-                const oppP = data.players.find(p => p.seat !== gameState.mySeat);
-                if (oppP && oppP.hand) {
-                    gameState.opponentRevealedHand = oppP.hand;
-                }
+            if (autoActionTimeout) {
+                clearTimeout(autoActionTimeout);
+                autoActionTimeout = null;
             }
-            renderOpponent();
+            if (data.players) {
+                gameState.revealedHands = {};
+                data.players.forEach(p => {
+                    gameState.revealedHands[p.seat] = p.hand;
+                });
+            }
+            const isMe = data.winnerSeat === gameState.mySeat;
+            showBannerAlert(isMe ? '🎉 BẠN ĐÃ CHIẾN THẮNG!' : `🏆 ${data.winnerName ? data.winnerName.toUpperCase() : 'ĐỐI THỦ'} ĐÃ CHIẾN THẮNG!`);
+            if (isMe) sounds.playWin();
+            else sounds.playLose();
+
+            renderAllOpponents();
             renderTableCenter();
             setTimeout(() => {
                 showRoundEndModal(data);
-            }, 1800);
+            }, 600);
         });
 
         socket.on('action_error', (data) => {
@@ -487,27 +521,38 @@ function startOnlineMode(action, code = '') {
 }
 
 
-// ================= SOLO VS BOT AI MODE (4-PLAYER TABLE) =================
-let soloBots = [
-    { seat: 1, name: 'Bắc Kim Thang', avatar: '🐯', ai: null, hand: [], score: 1000, cardCount: 10, passedTrick: false, baoSam: null, hasBaoMot: false },
-    { seat: 2, name: 'Thần Bài 99', avatar: '👑', ai: null, hand: [], score: 1000, cardCount: 10, passedTrick: false, baoSam: null, hasBaoMot: false },
-    { seat: 3, name: 'Bất Bại Sâm', avatar: '🐉', ai: null, hand: [], score: 1000, cardCount: 10, passedTrick: false, baoSam: null, hasBaoMot: false }
-];
+// ================= SOLO VS BOT AI MODE (2-4 PLAYERS) =================
+let soloBots = [];
+let currentSoloPlayerCount = 4;
 
-function startSoloBotMode() {
+function startSoloBotMode(playerCount = 4) {
     isSoloMode = true;
-    showToast('🎮 Bàn luyện tập 4 người: Bạn cùng 3 Cao thủ AI!');
-    gameState.roomCode = 'SOLO-4P';
+    currentSoloPlayerCount = playerCount;
+    showToast(`🎮 Bàn luyện tập ${playerCount} người: Bạn cùng ${playerCount - 1} Cao thủ AI!`);
+    gameState.roomCode = `SOLO-${playerCount}P`;
     gameState.mySeat = 0;
-    gameState.lastWinnerSeat = 0;
     gameState.myScore = myProfile.score;
 
-    soloBots[0].ai = new SamLocAI('Bắc Kim Thang', '🐯');
-    soloBots[1].ai = new SamLocAI('Thần Bài 99', '👑');
-    soloBots[2].ai = new SamLocAI('Bất Bại Sâm', '🐉');
+    const allBotsPool = [
+        { seat: 1, name: 'Bắc Kim Thang', avatar: '🐯', ai: new SamLocAI('Bắc Kim Thang', '🐯'), hand: [], score: 1000, cardCount: 10, passedTrick: false, baoSam: null, hasBaoMot: false },
+        { seat: 2, name: 'Thần Bài 99', avatar: '👑', ai: new SamLocAI('Thần Bài 99', '👑'), hand: [], score: 1000, cardCount: 10, passedTrick: false, baoSam: null, hasBaoMot: false },
+        { seat: 3, name: 'Bất Bại Sâm', avatar: '🐉', ai: new SamLocAI('Bất Bại Sâm', '🐉'), hand: [], score: 1000, cardCount: 10, passedTrick: false, baoSam: null, hasBaoMot: false }
+    ];
+
+    if (playerCount === 2) {
+        soloBots = [allBotsPool[0]];
+    } else if (playerCount === 3) {
+        soloBots = [allBotsPool[0], allBotsPool[1]];
+    } else {
+        soloBots = allBotsPool;
+    }
+
+    const allSeats = [0, ...soloBots.map(b => b.seat)];
+    // Random starter for round 1!
+    gameState.lastWinnerSeat = allSeats[Math.floor(Math.random() * allSeats.length)];
 
     gameState.opponents = soloBots;
-    gameState.opponent = soloBots[1]; // Center top opponent
+    gameState.opponent = soloBots[0];
 
     showScreen('gameScreen');
     updateRoomHeader();
@@ -932,6 +977,15 @@ function initGameControls() {
     document.getElementById('btnSortHand').addEventListener('click', handleSortHand);
     document.getElementById('btnHintMove').addEventListener('click', handleHintMove);
 
+    const btnStartHost = document.getElementById('btnStartGameHost');
+    if (btnStartHost) {
+        btnStartHost.addEventListener('click', () => {
+            if (socket && gameState.roomCode) {
+                socket.emit('start_game_host', { roomCode: gameState.roomCode });
+            }
+        });
+    }
+
     document.getElementById('btnLeaveRoom').addEventListener('click', () => {
         document.getElementById('leaveConfirmModal').classList.add('show');
     });
@@ -1210,7 +1264,11 @@ function showScreen(screenId) {
 }
 
 function updateRoomHeader() {
-    document.getElementById('roomCodeDisplay').innerText = `Phòng: ${gameState.roomCode}`;
+    const total = isSoloMode ? 4 : (gameState.players && gameState.players.length > 0 ? gameState.players.length : (gameState.opponent ? 2 : 1));
+    const codeEl = document.getElementById('roomCodeDisplay');
+    if (codeEl) {
+        codeEl.innerText = `Phòng: ${gameState.roomCode || '---'} (${total}/4 người)`;
+    }
 }
 
 function applyGameState(state) {
@@ -1237,6 +1295,7 @@ function applyGameState(state) {
         gameState.myHasBaoMot = me.hasBaoMot;
     }
 
+    updateRoomHeader();
     renderGameState();
 }
 
@@ -1704,22 +1763,56 @@ function findStraightsOfLength(sortedCards, len) {
 }
 
 function renderControls() {
+    const waitingControls = document.getElementById('waitingControls');
+    const btnStartGameHost = document.getElementById('btnStartGameHost');
+    const waitingStatusMsg = document.getElementById('waitingStatusMsg');
     const baoSamControls = document.getElementById('baoSamControls');
     const playingControls = document.getElementById('playingControls');
     const btnPlay = document.getElementById('btnPlayCards');
     const btnPass = document.getElementById('btnPassTurn');
 
-    if (gameState.status === 'BAO_SAM') {
-        baoSamControls.style.display = 'flex';
-        playingControls.style.display = 'none';
+    if (gameState.status === 'WAITING') {
+        if (waitingControls) waitingControls.style.display = 'flex';
+        if (baoSamControls) baoSamControls.style.display = 'none';
+        if (playingControls) playingControls.style.display = 'none';
+
+        const totalPlayers = gameState.players && gameState.players.length > 0 ? gameState.players.length : (gameState.opponents ? gameState.opponents.length + 1 : 1);
+        const isHost = gameState.mySeat === 0;
+
+        if (isHost) {
+            if (totalPlayers >= 2) {
+                if (btnStartGameHost) {
+                    btnStartGameHost.style.display = 'inline-block';
+                    btnStartGameHost.innerText = `▶️ BẮT ĐẦU VÁN ĐẤU (${totalPlayers}/4 người)`;
+                }
+                if (waitingStatusMsg) {
+                    waitingStatusMsg.innerText = `Đã có ${totalPlayers}/4 người. Bạn có thể Bắt đầu ngay hoặc chờ thêm bạn bè!`;
+                }
+            } else {
+                if (btnStartGameHost) btnStartGameHost.style.display = 'none';
+                if (waitingStatusMsg) {
+                    waitingStatusMsg.innerText = 'Đang chờ bạn bè vào bàn... (1/4). Hãy gửi link hoặc mã phòng!';
+                }
+            }
+        } else {
+            if (btnStartGameHost) btnStartGameHost.style.display = 'none';
+            if (waitingStatusMsg) {
+                waitingStatusMsg.innerText = `Đang chờ chủ phòng bắt đầu ván đấu... (${totalPlayers}/4 người)`;
+            }
+        }
+    } else if (gameState.status === 'BAO_SAM') {
+        if (waitingControls) waitingControls.style.display = 'none';
+        if (baoSamControls) baoSamControls.style.display = 'flex';
+        if (playingControls) playingControls.style.display = 'none';
 
         // Disable if already chosen
         const hasChosen = gameState.myBaoSam !== null;
         document.getElementById('btnBaoSam').disabled = hasChosen;
         document.getElementById('btnKhongBaoSam').disabled = hasChosen;
     } else if (gameState.status === 'PLAYING') {
-        baoSamControls.style.display = 'none';
-        playingControls.style.display = 'flex';
+        if (waitingControls) waitingControls.style.display = 'none';
+        if (baoSamControls) baoSamControls.style.display = 'none';
+        if (playingControls) playingControls.style.display = 'flex';
 
         const isMyTurn = gameState.currentTurnSeat === gameState.mySeat;
         const isFreeLead = !gameState.tableCombo || gameState.tableCombo.type === COMBO_TYPES.INVALID || gameState.lastPlayedBy === gameState.mySeat;
@@ -1729,13 +1822,13 @@ function renderControls() {
 
         const btnHint = document.getElementById('btnHintMove');
         if (btnHint) {
-            // Phương án 1: Chỉ hiện nút Gợi ý trong chế độ Đấu với Bot (Solo), ẩn hoàn toàn khi Đấu Online (PvP)
             btnHint.style.display = isSoloMode ? 'inline-block' : 'none';
             btnHint.disabled = !isMyTurn;
         }
     } else {
-        baoSamControls.style.display = 'none';
-        playingControls.style.display = 'none';
+        if (waitingControls) waitingControls.style.display = 'none';
+        if (baoSamControls) baoSamControls.style.display = 'none';
+        if (playingControls) playingControls.style.display = 'none';
     }
 }
 
@@ -1772,43 +1865,47 @@ function showToast(msg) {
 }
 
 function showRoundEndModal(data) {
-    const modal = document.getElementById('roundEndModal');
-    const title = document.getElementById('roundEndTitle');
-    const breakdown = document.getElementById('scoreBreakdown');
+    try {
+        const modal = document.getElementById('roundEndModal');
+        const title = document.getElementById('roundEndTitle');
+        const breakdown = document.getElementById('scoreBreakdown');
+        if (!modal || !title || !breakdown) return;
 
-    const isMeWinner = data.winnerSeat === gameState.mySeat;
-    title.innerText = isMeWinner ? '🎉 BẠN ĐÃ CHIẾN THẮNG!' : '💔 BẠN ĐÃ THUA CUỘC!';
-    title.className = `modal-title ${isMeWinner ? 'win' : 'lose'}`;
+        const isMeWinner = data && data.winnerSeat === gameState.mySeat;
+        title.innerText = isMeWinner ? '🎉 BẠN ĐÃ CHIẾN THẮNG!' : '💔 BẠN ĐÃ THUA CUỘC!';
+        title.className = `modal-title ${isMeWinner ? 'win' : 'lose'}`;
 
-    if (isMeWinner) {
-        sounds.playWin();
-    } else {
-        sounds.playLose();
-    }
+        if (isMeWinner) {
+            sounds.playWin();
+        } else {
+            sounds.playLose();
+        }
 
-    breakdown.innerHTML = '';
-    data.penaltyDetails.forEach(line => {
-        const item = document.createElement('div');
-        item.className = 'breakdown-item highlight';
-        item.innerText = line;
-        breakdown.appendChild(item);
-    });
+        breakdown.innerHTML = '';
+        const details = (data && Array.isArray(data.penaltyDetails)) ? data.penaltyDetails : (data && data.penaltyDetails ? [data.penaltyDetails] : []);
+        details.forEach(line => {
+            const item = document.createElement('div');
+            item.className = 'breakdown-item highlight';
+            item.innerText = line;
+            breakdown.appendChild(item);
+        });
 
-    const balanceItem = document.createElement('div');
-    balanceItem.style.marginTop = '12px';
-    balanceItem.style.paddingTop = '10px';
-    balanceItem.style.borderTop = '1px dashed rgba(255, 255, 255, 0.2)';
-    balanceItem.style.display = 'flex';
-    balanceItem.style.justifyContent = 'space-between';
-    balanceItem.style.alignItems = 'center';
-    balanceItem.innerHTML = `
-        <span style="color: #94a3b8; font-weight: 600;">Số dư hiện tại:</span>
-        <span style="color: #fbbf24; font-weight: 800; font-size: 1.15rem;"><span class="coin-icon"></span> ${gameState.myScore.toLocaleString()} xu</span>
-    `;
-    breakdown.appendChild(balanceItem);
+        const balanceItem = document.createElement('div');
+        balanceItem.style.marginTop = '12px';
+        balanceItem.style.paddingTop = '10px';
+        balanceItem.style.borderTop = '1px dashed rgba(255, 255, 255, 0.2)';
+        balanceItem.style.display = 'flex';
+        balanceItem.style.justifyContent = 'space-between';
+        balanceItem.style.alignItems = 'center';
+        const displayScore = gameState.myScore !== undefined ? gameState.myScore : (myProfile.score || 1000);
+        balanceItem.innerHTML = `
+            <span style="color: #94a3b8; font-weight: 600;">Số dư hiện tại:</span>
+            <span style="color: #fbbf24; font-weight: 800; font-size: 1.15rem;"><span class="coin-icon"></span> ${displayScore.toLocaleString()} xu</span>
+        `;
+        breakdown.appendChild(balanceItem);
 
         // Render Revealed Hands for all players (Ngửa bài cả bàn)
-        if (data.players && data.players.length > 0) {
+        if (data && data.players && Array.isArray(data.players) && data.players.length > 0) {
             const handsWrapper = document.createElement('div');
             handsWrapper.className = 'revealed-hands-container';
 
@@ -1821,7 +1918,7 @@ function showRoundEndModal(data) {
 
                 const pHeader = document.createElement('div');
                 pHeader.className = 'revealed-hand-header';
-                const cardCount = p.hand ? p.hand.length : 0;
+                const cardCount = (p.hand && Array.isArray(p.hand)) ? p.hand.length : 0;
                 const scoreChangeStr = p.scoreChange !== undefined ? (p.scoreChange >= 0 ? `+${p.scoreChange}` : `${p.scoreChange}`) : '';
 
                 pHeader.innerHTML = `
@@ -1832,12 +1929,15 @@ function showRoundEndModal(data) {
 
                 const pRow = document.createElement('div');
                 pRow.className = 'revealed-cards-row';
-                if (p.hand && p.hand.length > 0) {
+                if (p.hand && Array.isArray(p.hand) && p.hand.length > 0) {
                     p.hand.forEach(c => {
                         const mini = document.createElement('div');
                         mini.className = 'mini-card-item';
-                        mini.style.backgroundImage = `url('${c.image || 'cards/' + c.suit.key + '-' + c.rank.value + '.png'}')`;
-                        mini.title = `${c.rank.value} ${c.suit.name}`;
+                        const suitKey = c.suit ? (c.suit.key || c.suit.name || 'heart') : 'heart';
+                        const rankVal = c.rank ? (c.rank.value || 'A') : 'A';
+                        const cardImg = c.image || `cards/${suitKey}-${rankVal}.png`;
+                        mini.style.backgroundImage = `url('${cardImg}')`;
+                        mini.title = `${rankVal} ${suitKey}`;
                         pRow.appendChild(mini);
                     });
                 } else {
@@ -1861,7 +1961,12 @@ function showRoundEndModal(data) {
             breakdown.appendChild(warningItem);
         }
 
-    modal.classList.add('show');
+        modal.classList.add('show');
+    } catch (err) {
+        console.error('Error in showRoundEndModal:', err);
+        const modal = document.getElementById('roundEndModal');
+        if (modal) modal.classList.add('show');
+    }
 }
 
 // ================= EMOTES & CHAT =================
