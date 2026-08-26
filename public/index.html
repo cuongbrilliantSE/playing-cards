@@ -132,9 +132,9 @@
         <audio id="remoteVoiceAudio" autoplay playsinline style="display: none;"></audio>
 
         <!-- Casino Table Surface -->
-        <div class="casino-table">
-            <!-- Opponent Top Area -->
-            <div class="opponent-area">
+        <div class="casino-table table-4seats">
+            <!-- Opponent Top Area (Seat +2) -->
+            <div class="opponent-area opponent-top" id="opponentTopArea">
                 <div class="player-info-card" id="opponentCard">
                     <div class="player-avatar" id="opponentAvatar">⏳</div>
                     <div class="player-name-wrap">
@@ -146,6 +146,32 @@
 
                 <!-- Opponent Card Back Fan -->
                 <div class="opponent-cards-fan" id="opponentCardsFan"></div>
+            </div>
+
+            <!-- Opponent Left Area (Seat +1) -->
+            <div class="opponent-area opponent-side opponent-left" id="opponentLeftArea" style="display: none;">
+                <div class="player-info-card" id="opponentLeftCard">
+                    <div class="player-avatar" id="opponentLeftAvatar">🐯</div>
+                    <div class="player-name-wrap">
+                        <div class="player-name" id="opponentLeftName">Người chơi 2</div>
+                        <div class="player-score" id="opponentLeftScore"><span class="coin-icon"></span> 1,000 xu</div>
+                    </div>
+                    <div class="status-tag" id="opponentLeftStatusTag" style="display: none;"></div>
+                </div>
+                <div class="opponent-cards-fan side-fan" id="opponentLeftCardsFan"></div>
+            </div>
+
+            <!-- Opponent Right Area (Seat +3) -->
+            <div class="opponent-area opponent-side opponent-right" id="opponentRightArea" style="display: none;">
+                <div class="player-info-card" id="opponentRightCard">
+                    <div class="player-avatar" id="opponentRightAvatar">🐉</div>
+                    <div class="player-name-wrap">
+                        <div class="player-name" id="opponentRightName">Người chơi 4</div>
+                        <div class="player-score" id="opponentRightScore"><span class="coin-icon"></span> 1,000 xu</div>
+                    </div>
+                    <div class="status-tag" id="opponentRightStatusTag" style="display: none;"></div>
+                </div>
+                <div class="opponent-cards-fan side-fan" id="opponentRightCardsFan"></div>
             </div>
 
             <!-- Table Center (Played Cards Staging) -->

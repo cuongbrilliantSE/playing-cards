@@ -77,14 +77,25 @@ class GameRoom {
         }
     }
 
+    getNextAvailableSeat() {
+        const occupied = new Set(this.players.map(p => p.seat));
+        for (let s = 0; s < 4; s++) {
+            if (!occupied.has(s)) return s;
+        }
+        return this.players.length;
+    }
+
     addPlayer(socket, name, avatar, score = 1000) {
-        if (this.players.length >= 2) return false;
+        if (this.players.length >= 4) return false;
+        if (this.status !== 'WAITING') return false;
+        const seat = this.getNextAvailableSeat();
+        const defaultAvatars = ['🦁', '🐯', '👑', '🐉'];
         this.players.push({
             id: socket.id,
             playerId: socket.playerId,
-            name: name || 'Người chơi 2',
-            avatar: avatar || '🐯',
-            seat: 1,
+            name: name || `Người chơi ${seat + 1}`,
+            avatar: avatar || defaultAvatars[seat % 4],
+            seat,
             score: typeof score === 'number' && !isNaN(score) ? score : 1000,
             hand: [],
             ready: true,
@@ -94,7 +105,6 @@ class GameRoom {
         });
         return true;
     }
-
 
     removePlayer(socketId) {
         const idx = this.players.findIndex(p => p.id === socketId);
@@ -120,36 +130,29 @@ class GameRoom {
         this.playedHistory = [];
         this.baoSamPlayerSeat = -1;
 
-        // Deal 10 cards each
+        // Deal 10 cards to each player from shuffled 52-card deck
         const deck = rules.shuffleDeck(rules.createDeck());
-        this.players[0].hand = rules.sortCardsByPower(deck.slice(0, 10));
-        this.players[1].hand = rules.sortCardsByPower(deck.slice(10, 20));
-
-        this.players.forEach(p => {
+        this.players.forEach((p, idx) => {
+            p.hand = rules.sortCardsByPower(deck.slice(idx * 10, (idx + 1) * 10));
             p.passedTrick = false;
             p.baoSam = null;
             p.hasBaoMot = false;
         });
 
         // Check Instant Win (Tới Trắng)
-        const win0 = rules.checkInstantWin(this.players[0].hand);
-        const win1 = rules.checkInstantWin(this.players[1].hand);
-
-        if (win0 || win1) {
-            let winnerSeat = 0;
-            let winInfo = win0;
-            if (win0 && win1) {
-                // Compare multiplier
-                if (win1.multiplier > win0.multiplier) {
-                    winnerSeat = 1;
-                    winInfo = win1;
-                }
-            } else if (win1) {
-                winnerSeat = 1;
-                winInfo = win1;
+        let instantWinners = [];
+        this.players.forEach(p => {
+            const winInfo = rules.checkInstantWin(p.hand);
+            if (winInfo) {
+                instantWinners.push({ player: p, winInfo });
             }
+        });
 
-            this.endRoundWithInstantWin(winnerSeat, winInfo);
+        if (instantWinners.length > 0) {
+            // Sort by multiplier highest
+            instantWinners.sort((a, b) => b.winInfo.multiplier - a.winInfo.multiplier);
+            const topWinner = instantWinners[0];
+            this.endRoundWithInstantWin(topWinner.player.seat, topWinner.winInfo);
             return;
         }
 
@@ -178,7 +181,7 @@ class GameRoom {
 
         this.broadcastState();
 
-        // If both decided
+        // If all players decided
         if (this.players.every(pl => pl.baoSam !== null)) {
             if (this.turnTimer) clearInterval(this.turnTimer);
             this.resolveBaoSam();
@@ -186,25 +189,36 @@ class GameRoom {
     }
 
     resolveBaoSam() {
-        // Find if anyone called Báo Sâm
-        const p0 = this.getPlayerBySeat(0);
-        const p1 = this.getPlayerBySeat(1);
+        // Find players who called Báo Sâm
+        const samCallers = this.players.filter(p => p.baoSam === true);
 
-        if (p0.baoSam && p1.baoSam) {
-            // Both called Sâm: Priority to previous winner or seat 0
-            this.baoSamPlayerSeat = this.lastWinnerSeat;
-        } else if (p0.baoSam) {
-            this.baoSamPlayerSeat = 0;
-        } else if (p1.baoSam) {
-            this.baoSamPlayerSeat = 1;
+        if (samCallers.length === 1) {
+            this.baoSamPlayerSeat = samCallers[0].seat;
+        } else if (samCallers.length > 1) {
+            // Priority to lastWinnerSeat if they called Sâm, else first caller in turn order from lastWinnerSeat
+            const isLastWinnerSam = samCallers.find(p => p.seat === this.lastWinnerSeat);
+            if (isLastWinnerSam) {
+                this.baoSamPlayerSeat = this.lastWinnerSeat;
+            } else {
+                const sortedSeats = this.players.map(p => p.seat).sort((a, b) => a - b);
+                let startIdx = sortedSeats.indexOf(this.lastWinnerSeat);
+                if (startIdx === -1) startIdx = 0;
+                for (let i = 0; i < sortedSeats.length; i++) {
+                    const checkSeat = sortedSeats[(startIdx + i) % sortedSeats.length];
+                    if (samCallers.some(p => p.seat === checkSeat)) {
+                        this.baoSamPlayerSeat = checkSeat;
+                        break;
+                    }
+                }
+            }
         } else {
             this.baoSamPlayerSeat = -1;
         }
 
         this.status = 'PLAYING';
-        // If someone called Sâm, they go first. Otherwise last winner goes first.
-        this.currentTurnSeat = this.baoSamPlayerSeat !== -1 ? this.baoSamPlayerSeat : this.lastWinnerSeat;
-        
+        const validStarter = this.getPlayerBySeat(this.lastWinnerSeat) ? this.lastWinnerSeat : this.players[0].seat;
+        this.currentTurnSeat = this.baoSamPlayerSeat !== -1 ? this.baoSamPlayerSeat : validStarter;
+
         io.to(this.code).emit('bao_sam_resolved', {
             baoSamPlayerSeat: this.baoSamPlayerSeat,
             starterSeat: this.currentTurnSeat
@@ -228,7 +242,6 @@ class GameRoom {
     }
 
     handleAutoPlayOrPass() {
-        // If player has to pass or auto play lowest valid card
         const currentP = this.getPlayerBySeat(this.currentTurnSeat);
         if (!currentP) return;
 
@@ -238,11 +251,26 @@ class GameRoom {
         } else {
             // Auto play lowest single
             if (currentP.hand.length > 0) {
-                // Play lowest card
                 const lowest = [currentP.hand[0]];
                 this.playCards(this.currentTurnSeat, lowest);
             }
         }
+    }
+
+    getNextTurnSeat(fromSeat) {
+        const activePlayers = this.players.filter(p => !p.passedTrick);
+        if (activePlayers.length === 0) return this.lastPlayedBy;
+        const sortedSeats = this.players.map(p => p.seat).sort((a, b) => a - b);
+        let idx = sortedSeats.indexOf(fromSeat);
+        if (idx === -1) idx = 0;
+        for (let i = 1; i <= sortedSeats.length; i++) {
+            const nextSeat = sortedSeats[(idx + i) % sortedSeats.length];
+            const player = this.getPlayerBySeat(nextSeat);
+            if (player && !player.passedTrick) {
+                return nextSeat;
+            }
+        }
+        return this.lastPlayedBy;
     }
 
     playCards(seat, cardObjects) {
@@ -270,10 +298,9 @@ class GameRoom {
             }
         }
 
-        // Special: Báo 1 rule check
-        const opponent = this.players.find(pl => pl.seat !== seat);
-        if (opponent && opponent.hasBaoMot && isFreeLead && playedCombo.type === rules.COMBO_TYPES.SINGLE) {
-            // Player MUST play highest single if leading with single
+        // Special: Báo 1 rule check (must play highest single if any opponent has Báo 1 and leading single)
+        const hasAnyBao1Opponent = this.players.some(pl => pl.seat !== seat && pl.hasBaoMot);
+        if (hasAnyBao1Opponent && isFreeLead && playedCombo.type === rules.COMBO_TYPES.SINGLE) {
             const highestSingle = p.hand[p.hand.length - 1];
             if (playedCombo.power < highestSingle.power) {
                 return { success: false, msg: 'Đối thủ đã Báo 1! Bạn phải đánh lá bài lớn nhất của mình.' };
@@ -290,7 +317,6 @@ class GameRoom {
         p.hand = p.hand.filter(c => !cardIds.includes(c.id));
         this.tableCombo = playedCombo;
         this.lastPlayedBy = seat;
-        this.players.forEach(pl => pl.passedTrick = false);
 
         this.playedHistory.push({
             seat,
@@ -317,8 +343,8 @@ class GameRoom {
             return { success: true };
         }
 
-        // Switch turn to opponent
-        this.currentTurnSeat = 1 - seat;
+        // Advance turn to next active player in trick
+        this.currentTurnSeat = this.getNextTurnSeat(seat);
         this.startTurnTimer();
 
         io.to(this.code).emit('cards_played', {
@@ -351,10 +377,18 @@ class GameRoom {
             playerName: p.name
         });
 
-        // In 2 players, if opponent passes, current round/trick ends, lead passes back to lastPlayedBy
-        this.tableCombo = null; // Clear table
-        this.currentTurnSeat = this.lastPlayedBy;
-        this.players.forEach(pl => pl.passedTrick = false);
+        // Count remaining active players in this trick
+        const activeRemaining = this.players.filter(pl => !pl.passedTrick);
+
+        if (activeRemaining.length <= 1) {
+            // Trick ends! The last player who played cards gets the lead
+            this.tableCombo = null; // Clear table
+            this.currentTurnSeat = this.lastPlayedBy;
+            this.players.forEach(pl => pl.passedTrick = false);
+        } else {
+            // Move to next non-passed player
+            this.currentTurnSeat = this.getNextTurnSeat(seat);
+        }
 
         this.startTurnTimer();
         this.broadcastState();
@@ -364,90 +398,87 @@ class GameRoom {
     handleRoundFinish(winnerSeat, lastCombo) {
         if (this.turnTimer) clearInterval(this.turnTimer);
         this.status = 'ROUND_END';
-        this.lastWinnerSeat = winnerSeat;
 
         const winner = this.getPlayerBySeat(winnerSeat);
-        const loser = this.getPlayerBySeat(1 - winnerSeat);
+        const isThoiHeoEnd = lastCombo.cards.some(c => c.rank.value === '2');
 
-        // Check if finished with '2' (Thối 2 / Thối Heo)
-        let isThoiHeoEnd = false;
-        if (lastCombo.cards.some(c => c.rank.value === '2')) {
-            isThoiHeoEnd = true;
-        }
-
-        // Calculate score
-        let points = 0;
-        let penaltyDetails = [];
-
-        // Loser remaining cards & Cóng check
-        const loserCardCount = loser.hand.length;
-        if (loserCardCount === 10) {
-            points += 15;
-            penaltyDetails.push(`⚠️ ${loser.name} BỊ CÓNG (chưa đánh lá nào) (+15 điểm)`);
-        } else {
-            points += loserCardCount;
-            penaltyDetails.push(`${loser.name} còn ${loserCardCount} lá (+${loserCardCount} điểm)`);
-        }
-
-        // Check unplayed 2s and Tứ Quý in loser's hand (Thối heo / tứ quý)
-        const unplayedTwos = loser.hand.filter(c => c.rank.value === '2').length;
-        if (unplayedTwos > 0) {
-            const twoPen = unplayedTwos * 10;
-            points += twoPen;
-            penaltyDetails.push(`Thối ${unplayedTwos} lá Hai (+${twoPen} điểm)`);
-        }
-
-        // Unplayed Quads
-        const rankCounts = {};
-        loser.hand.forEach(c => {
-            rankCounts[c.rank.value] = (rankCounts[c.rank.value] || 0) + 1;
-        });
-        const unplayedQuads = Object.values(rankCounts).filter(c => c === 4).length;
-        if (unplayedQuads > 0) {
-            const quadPen = unplayedQuads * 15;
-            points += quadPen;
-            penaltyDetails.push(`Thối ${unplayedQuads} Tứ quý (+${quadPen} điểm)`);
-        }
-
-        // Sâm bonus or penalty
-        let isSamWin = false;
-        let isDenSam = false;
-
-        if (this.baoSamPlayerSeat !== -1) {
-            if (this.baoSamPlayerSeat === winnerSeat) {
-                // Successful Sâm!
-                isSamWin = true;
-                points = 20 + loserCardCount * 2;
-                penaltyDetails = [`🎉 ${winner.name} THẮNG SÂM THÀNH CÔNG! (+${points} điểm)`];
-            } else {
-                // Den Sam! The caller lost!
-                isDenSam = true;
-                points = 25;
-                penaltyDetails = [`⚠️ ${loser.name} BỊ ĐỀN SÂM! (+${points} điểm)`];
-            }
-        }
-
-        let winnerChange = points;
-        let loserChange = -points;
         if (isThoiHeoEnd) {
-            points = 15;
-            winnerChange = -15;
-            loserChange = 15;
-            penaltyDetails = [`⚠️ ${winner.name} VỀ BẰNG QUÂN 2 (BỊ PHẠT THỐI 2 & XỬ THUA) (-15 điểm)!`];
+            // Player finished with 2 -> Penalized to all other players
+            const numLosers = this.players.length - 1;
+            const thoiHeoPenalty = 20 * numLosers;
+            const winShare = 20;
+
+            const scoreChanges = new Map();
+            scoreChanges.set(winner.playerId, -thoiHeoPenalty);
+            this.players.filter(p => p.seat !== winnerSeat).forEach(p => {
+                scoreChanges.set(p.playerId, winShare);
+            });
+
+            const penaltyDetails = [`⚠️ ${winner.name} VỀ BẰNG QUÂN 2 (BỊ PHẠT THỐI 2 & XỬ THUA) (-${thoiHeoPenalty} xu)!`];
+            this.lastWinnerSeat = this.getNextTurnSeat(winnerSeat);
+
+            this.saveAndEmitMultiRoundEnd(winnerSeat, winner.name, false, scoreChanges, penaltyDetails, {
+                isThoiHeoEnd: true
+            });
+            return;
         }
 
-        const effectiveWinnerSeat = isThoiHeoEnd ? 1 - winnerSeat : winnerSeat;
-        this.lastWinnerSeat = effectiveWinnerSeat;
+        this.lastWinnerSeat = winnerSeat;
+        let totalWinPoints = 0;
+        let penaltyDetails = [];
+        const scoreChanges = new Map();
 
-        this.saveAndEmitRoundEnd(winner, loser, winnerChange, loserChange, (winP, loseP) => ({
-            winnerSeat: effectiveWinnerSeat,
-            winnerName: this.getPlayerBySeat(effectiveWinnerSeat).name,
-            points,
+        const isSamWin = this.baoSamPlayerSeat === winnerSeat;
+
+        this.players.filter(p => p.seat !== winnerSeat).forEach(loser => {
+            let loserPoints = 0;
+            const loserCardCount = loser.hand.length;
+
+            if (isSamWin) {
+                loserPoints = 20;
+                penaltyDetails.push(`${loser.name} bị phạt Thua Sâm (-20 xu)`);
+            } else {
+                if (loserCardCount === 10) {
+                    loserPoints += 15;
+                    penaltyDetails.push(`⚠️ ${loser.name} BỊ CÓNG (10 lá) (-15 xu)`);
+                } else {
+                    loserPoints += loserCardCount;
+                    penaltyDetails.push(`${loser.name} còn ${loserCardCount} lá (-${loserCardCount} xu)`);
+                }
+
+                // Check unplayed 2s and Quads
+                const unplayedTwos = loser.hand.filter(c => c.rank.value === '2').length;
+                if (unplayedTwos > 0) {
+                    const twoPen = unplayedTwos * 10;
+                    loserPoints += twoPen;
+                    penaltyDetails.push(`${loser.name} thối ${unplayedTwos} lá 2 (-${twoPen} xu)`);
+                }
+
+                const rankCounts = {};
+                loser.hand.forEach(c => {
+                    rankCounts[c.rank.value] = (rankCounts[c.rank.value] || 0) + 1;
+                });
+                const unplayedQuads = Object.values(rankCounts).filter(c => c === 4).length;
+                if (unplayedQuads > 0) {
+                    const quadPen = unplayedQuads * 15;
+                    loserPoints += quadPen;
+                    penaltyDetails.push(`${loser.name} thối ${unplayedQuads} Tứ quý (-${quadPen} xu)`);
+                }
+            }
+
+            totalWinPoints += loserPoints;
+            scoreChanges.set(loser.playerId, -loserPoints);
+        });
+
+        scoreChanges.set(winner.playerId, totalWinPoints);
+        if (isSamWin) {
+            penaltyDetails.unshift(`🎉 ${winner.name} THẮNG SÂM THÀNH CÔNG (+${totalWinPoints} xu)!`);
+        }
+
+        this.saveAndEmitMultiRoundEnd(winnerSeat, winner.name, true, scoreChanges, penaltyDetails, {
             isSamWin,
-            isDenSam,
-            isThoiHeoEnd,
-            penaltyDetails
-        }));
+            totalPoints: totalWinPoints
+        });
     }
 
     handleDenSam(interceptorSeat, sâmPlayerSeat) {
@@ -455,17 +486,25 @@ class GameRoom {
         this.status = 'ROUND_END';
         this.lastWinnerSeat = interceptorSeat;
 
-        const winner = this.getPlayerBySeat(interceptorSeat);
-        const loser = this.getPlayerBySeat(sâmPlayerSeat);
-        const points = 25;
+        const interceptor = this.getPlayerBySeat(interceptorSeat);
+        const sâmPlayer = this.getPlayerBySeat(sâmPlayerSeat);
 
-        this.saveAndEmitRoundEnd(winner, loser, points, -points, (winP, loseP) => ({
-            winnerSeat: interceptorSeat,
-            winnerName: winP.name,
-            points,
+        const numOthers = this.players.length - 1;
+        const denPoints = 20 * numOthers;
+
+        const scoreChanges = new Map();
+        scoreChanges.set(sâmPlayer.playerId, -denPoints);
+
+        this.players.filter(p => p.seat !== sâmPlayerSeat).forEach(p => {
+            scoreChanges.set(p.playerId, 20);
+        });
+
+        const penaltyDetails = [`💥 ${interceptor.name} ĐÃ BẮT SÂM THÀNH CÔNG! ${sâmPlayer.name} BỊ PHẠT ĐỀN SÂM (-${denPoints} xu)!`];
+
+        this.saveAndEmitMultiRoundEnd(interceptorSeat, interceptor.name, true, scoreChanges, penaltyDetails, {
             isDenSam: true,
-            penaltyDetails: [`💥 ${winP.name} ĐÃ BẮT SÂM THÀNH CÔNG! ${loseP.name} BỊ PHẠT ĐỀN SÂM (-${points} điểm)!`]
-        }));
+            totalPoints: denPoints
+        });
     }
 
     endRoundWithInstantWin(winnerSeat, winInfo) {
@@ -474,66 +513,88 @@ class GameRoom {
         this.lastWinnerSeat = winnerSeat;
 
         const winner = this.getPlayerBySeat(winnerSeat);
-        const loser = this.getPlayerBySeat(1 - winnerSeat);
-        const points = winInfo.multiplier || 20;
+        const perPlayerPoints = winInfo.multiplier || 20;
+        const numLosers = this.players.length - 1;
+        const totalWin = perPlayerPoints * numLosers;
 
-        this.saveAndEmitRoundEnd(winner, loser, points, -points, (winP, loseP) => ({
-            winnerSeat,
-            winnerName: winP.name,
-            points,
+        const scoreChanges = new Map();
+        scoreChanges.set(winner.playerId, totalWin);
+
+        this.players.filter(p => p.seat !== winnerSeat).forEach(p => {
+            scoreChanges.set(p.playerId, -perPlayerPoints);
+        });
+
+        const penaltyDetails = [`✨ ${winner.name} TỚI TRẮNG (${winInfo.name}) (+${totalWin} xu)!`];
+
+        this.saveAndEmitMultiRoundEnd(winnerSeat, winner.name, true, scoreChanges, penaltyDetails, {
             isInstantWin: true,
             instantWinName: winInfo.name,
-            penaltyDetails: [`✨ TỚI TRẮNG: ${winInfo.name} (+${points} điểm)`]
-        }));
+            totalPoints: totalWin
+        });
     }
 
-    saveAndEmitRoundEnd(winner, loser, winnerChange, loserChange, buildPayload) {
-        const isWinnerRealWin = winnerChange >= 0;
-        Promise.all([
-            db.updateResult(winner.playerId, isWinnerRealWin, winnerChange).catch(err => {
-                console.error(`Winner DB write failed:`, err);
-                return null;
-            }),
-            db.updateResult(loser.playerId, !isWinnerRealWin, loserChange).catch(err => {
-                console.error(`Loser DB write failed:`, err);
-                return null;
-            })
-        ]).then(([winnerProfile, loserProfile]) => {
-            if (winnerProfile) {
-                winner.score = winnerProfile.score;
-            } else {
-                winner.score = Math.max(0, winner.score + winnerChange);
-            }
-            if (loserProfile) {
-                loser.score = loserProfile.score;
-            } else {
-                loser.score = Math.max(0, loser.score + loserChange);
-            }
+    saveAndEmitMultiRoundEnd(winnerSeat, winnerName, isRealWin, scoreChanges, penaltyDetails, extraData = {}) {
+        const updatePromises = this.players.map(p => {
+            const change = scoreChanges.get(p.playerId) || 0;
+            const won = p.seat === winnerSeat && isRealWin;
+            return db.updateResult(p.playerId, won, change).then(updatedProf => {
+                if (updatedProf) {
+                    p.score = updatedProf.score;
+                } else {
+                    p.score = Math.max(0, p.score + change);
+                }
+                const sock = io.sockets.sockets.get(p.id);
+                if (sock && updatedProf) {
+                    sock.emit('profile_loaded', { playerId: p.playerId, profile: updatedProf });
+                }
+                return p;
+            }).catch(err => {
+                console.error(`DB write failed for player ${p.name}:`, err);
+                p.score = Math.max(0, p.score + change);
+                return p;
+            });
+        });
 
-            const basePayload = buildPayload(winner, loser);
-            basePayload.players = this.players.map(p => ({
-                id: p.id,
-                seat: p.seat,
-                name: p.name,
-                score: p.score,
-                hand: p.hand
-            }));
+        Promise.all(updatePromises).then(() => {
+            const basePayload = {
+                winnerSeat,
+                winnerName,
+                points: extraData.totalPoints || 20,
+                penaltyDetails,
+                players: this.players.map(p => ({
+                    id: p.id,
+                    seat: p.seat,
+                    name: p.name,
+                    avatar: p.avatar,
+                    score: p.score,
+                    hand: p.hand,
+                    scoreChange: scoreChanges.get(p.playerId) || 0
+                })),
+                ...extraData
+            };
 
             io.to(this.code).emit('round_end', basePayload);
             this.broadcastState();
-
-            const winSocket = io.sockets.sockets.get(winner.id);
-            if (winSocket && winnerProfile) winSocket.emit('profile_loaded', { playerId: winner.playerId, profile: winnerProfile });
-            const loseSocket = io.sockets.sockets.get(loser.id);
-            if (loseSocket && loserProfile) loseSocket.emit('profile_loaded', { playerId: loser.playerId, profile: loserProfile });
-        }).catch(err => console.error('Error saving round end results:', err));
+        }).catch(err => console.error('Error saving multi round end results:', err));
     }
 
     broadcastState() {
         this.players.forEach(p => {
-            const opponent = this.players.find(pl => pl.seat !== p.seat);
             const playerSocket = io.sockets.sockets.get(p.id);
             if (playerSocket) {
+                const otherPlayers = this.players
+                    .filter(pl => pl.seat !== p.seat)
+                    .map(pl => ({
+                        seat: pl.seat,
+                        name: pl.name,
+                        avatar: pl.avatar,
+                        cardCount: pl.hand ? pl.hand.length : 0,
+                        score: pl.score,
+                        passedTrick: pl.passedTrick,
+                        baoSam: pl.baoSam,
+                        hasBaoMot: pl.hasBaoMot
+                    }));
+
                 playerSocket.emit('game_state', {
                     roomCode: this.code,
                     status: this.status,
@@ -541,16 +602,18 @@ class GameRoom {
                     myHand: p.hand,
                     myScore: p.score,
                     myBaoSam: p.baoSam,
-                    opponent: opponent ? {
-                        seat: opponent.seat,
-                        name: opponent.name,
-                        avatar: opponent.avatar,
-                        cardCount: opponent.hand.length,
-                        score: opponent.score,
-                        passedTrick: opponent.passedTrick,
-                        baoSam: opponent.baoSam,
-                        hasBaoMot: opponent.hasBaoMot
-                    } : null,
+                    opponent: otherPlayers.length > 0 ? otherPlayers[0] : null,
+                    opponents: otherPlayers,
+                    players: this.players.map(pl => ({
+                        seat: pl.seat,
+                        name: pl.name,
+                        avatar: pl.avatar,
+                        cardCount: pl.hand ? pl.hand.length : 0,
+                        score: pl.score,
+                        passedTrick: pl.passedTrick,
+                        baoSam: pl.baoSam,
+                        hasBaoMot: pl.hasBaoMot
+                    })),
                     currentTurnSeat: this.currentTurnSeat,
                     tableCombo: this.tableCombo,
                     lastPlayedBy: this.lastPlayedBy,
@@ -794,8 +857,12 @@ io.on('connection', (socket) => {
                 socket.emit('join_error', { msg: 'Phòng không tồn tại hoặc mã phòng không đúng!' });
                 return;
             }
-            if (room.players.length >= 2) {
-                socket.emit('join_error', { msg: 'Phòng đã đủ 2 người chơi!' });
+            if (room.players.length >= 4) {
+                socket.emit('join_error', { msg: 'Phòng đã đủ 4 người chơi!' });
+                return;
+            }
+            if (room.status !== 'WAITING') {
+                socket.emit('join_error', { msg: 'Ván đấu đang diễn ra, vui lòng chờ ván sau!' });
                 return;
             }
 
@@ -807,16 +874,32 @@ io.on('connection', (socket) => {
 
             const joined = room.addPlayer(socket, profile.name, profile.avatar, profile.score);
             if (joined) {
+                const player = room.getPlayerBySocketId(socket.id);
                 socket.join(roomCode);
-                socket.emit('room_joined', { roomCode, seat: 1 });
-                console.log(`${profile.name} joined room ${roomCode}`);
-                room.startNewGame();
+                socket.emit('room_joined', { roomCode, seat: player.seat });
+                console.log(`${profile.name} joined room ${roomCode} at seat ${player.seat}`);
+                
+                // If 2 or more players joined, start or broadcast state
+                if (room.players.length >= 2) {
+                    room.startNewGame();
+                } else {
+                    room.broadcastState();
+                }
             } else {
                 socket.emit('join_error', { msg: 'Không thể tham gia phòng chơi này!' });
             }
         } catch (err) {
             console.error(err);
             socket.emit('join_error', { msg: 'Lỗi hệ thống khi tham gia phòng chơi!' });
+        }
+    });
+
+    socket.on('start_game_host', ({ roomCode }) => {
+        const room = rooms.get(roomCode);
+        if (!room) return;
+        const player = room.getPlayerBySocketId(socket.id);
+        if (player && player.seat === 0 && room.players.length >= 2 && room.status === 'WAITING') {
+            room.startNewGame();
         }
     });
 
@@ -832,10 +915,10 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            // Find available room with 1 player waiting
+            // Find available room with < 4 players waiting
             let targetRoom = null;
             for (const [code, r] of rooms.entries()) {
-                if (r.players.length === 1 && r.status === 'WAITING' && !r.players[0].isOffline) {
+                if (r.players.length >= 1 && r.players.length < 4 && r.status === 'WAITING' && !r.players[0].isOffline) {
                     const hostSocket = io.sockets.sockets.get(r.players[0].id);
                     if (hostSocket && hostSocket.connected) {
                         targetRoom = r;
@@ -851,11 +934,11 @@ io.on('connection', (socket) => {
             if (targetRoom) {
                 const joined = targetRoom.addPlayer(socket, profile.name, profile.avatar, profile.score);
                 if (joined) {
+                    const player = targetRoom.getPlayerBySocketId(socket.id);
                     socket.join(targetRoom.code);
-                    socket.emit('room_joined', { roomCode: targetRoom.code, seat: 1 });
+                    socket.emit('room_joined', { roomCode: targetRoom.code, seat: player.seat });
                     targetRoom.startNewGame();
                 } else {
-                    // Fallback to new room if targetRoom was filled concurrently (Issue 1.2)
                     createAndJoinRoom(socket, profile);
                 }
             } else {
@@ -934,39 +1017,52 @@ io.on('connection', (socket) => {
         }
     });
 
-    // ================= WebRTC Voice Chat Signaling =================
-    socket.on('webrtc_offer', ({ roomCode, sdp }) => {
+    // ================= WebRTC Voice Chat Signaling (Mesh Support) =================
+    socket.on('webrtc_offer', ({ roomCode, targetSeat, sdp }) => {
         const room = rooms.get(roomCode);
         if (!room) return;
-        const opponent = room.players.find(p => p.id !== socket.id);
-        if (opponent) {
-            io.to(opponent.id).emit('webrtc_offer', {
-                fromSeat: room.getPlayerBySocketId(socket.id)?.seat,
-                sdp
+        const mySeat = room.getPlayerBySocketId(socket.id)?.seat;
+        if (targetSeat !== undefined) {
+            const targetPlayer = room.getPlayerBySeat(targetSeat);
+            if (targetPlayer) {
+                io.to(targetPlayer.id).emit('webrtc_offer', { fromSeat: mySeat, sdp });
+            }
+        } else {
+            room.players.filter(p => p.id !== socket.id).forEach(opp => {
+                io.to(opp.id).emit('webrtc_offer', { fromSeat: mySeat, sdp });
             });
         }
     });
 
-    socket.on('webrtc_answer', ({ roomCode, sdp }) => {
+    socket.on('webrtc_answer', ({ roomCode, targetSeat, sdp }) => {
         const room = rooms.get(roomCode);
         if (!room) return;
-        const opponent = room.players.find(p => p.id !== socket.id);
-        if (opponent) {
-            io.to(opponent.id).emit('webrtc_answer', {
-                fromSeat: room.getPlayerBySocketId(socket.id)?.seat,
-                sdp
-            });
+        const mySeat = room.getPlayerBySocketId(socket.id)?.seat;
+        if (targetSeat !== undefined) {
+            const targetPlayer = room.getPlayerBySeat(targetSeat);
+            if (targetPlayer) {
+                io.to(targetPlayer.id).emit('webrtc_answer', { fromSeat: mySeat, sdp });
+            }
+        } else {
+            const opponent = room.players.find(p => p.id !== socket.id);
+            if (opponent) {
+                io.to(opponent.id).emit('webrtc_answer', { fromSeat: mySeat, sdp });
+            }
         }
     });
 
-    socket.on('webrtc_ice_candidate', ({ roomCode, candidate }) => {
+    socket.on('webrtc_ice_candidate', ({ roomCode, targetSeat, candidate }) => {
         const room = rooms.get(roomCode);
         if (!room) return;
-        const opponent = room.players.find(p => p.id !== socket.id);
-        if (opponent) {
-            io.to(opponent.id).emit('webrtc_ice_candidate', {
-                fromSeat: room.getPlayerBySocketId(socket.id)?.seat,
-                candidate
+        const mySeat = room.getPlayerBySocketId(socket.id)?.seat;
+        if (targetSeat !== undefined) {
+            const targetPlayer = room.getPlayerBySeat(targetSeat);
+            if (targetPlayer) {
+                io.to(targetPlayer.id).emit('webrtc_ice_candidate', { fromSeat: mySeat, candidate });
+            }
+        } else {
+            room.players.filter(p => p.id !== socket.id).forEach(opp => {
+                io.to(opp.id).emit('webrtc_ice_candidate', { fromSeat: mySeat, candidate });
             });
         }
     });
@@ -976,14 +1072,11 @@ io.on('connection', (socket) => {
         if (!room) return;
         const player = room.getPlayerBySocketId(socket.id);
         if (player) {
-            const opponent = room.players.find(p => p.id !== socket.id);
-            if (opponent) {
-                io.to(opponent.id).emit('webrtc_voice_state', {
-                    seat: player.seat,
-                    isMuted,
-                    isSpeaking
-                });
-            }
+            socket.to(roomCode).emit('webrtc_voice_state', {
+                seat: player.seat,
+                isMuted,
+                isSpeaking
+            });
         }
     });
 

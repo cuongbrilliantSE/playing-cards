@@ -11,12 +11,10 @@ const fs = require('fs');
 async function runWebRTCSignalingTests() {
     console.log('\n=== RUNNING WEBRTC VOICE CHAT SIGNALING TESTS ===\n');
 
-    const TEST_PORT = 3998;
-    const SERVER_URL = `http://localhost:${TEST_PORT}`;
     const testDbPath = path.join(__dirname, `.test-webrtc-${Date.now()}.db`);
     process.env.PLAYERS_DB_PATH = testDbPath;
 
-    // Start isolated test server
+    // Start isolated test server on dynamic port
     const app = express();
     const server = http.createServer(app);
     const serverIo = new Server(server, { cors: { origin: '*' } });
@@ -96,7 +94,9 @@ async function runWebRTCSignalingTests() {
         });
     });
 
-    await new Promise(resolve => server.listen(TEST_PORT, resolve));
+    await new Promise(resolve => server.listen(0, resolve));
+    const dynamicPort = server.address().port;
+    const SERVER_URL = `http://localhost:${dynamicPort}`;
 
     // Connect Client 1 (Host)
     const client1 = io(SERVER_URL, { reconnection: false });
@@ -104,17 +104,21 @@ async function runWebRTCSignalingTests() {
 
     try {
         await new Promise((resolve) => {
-            client1.on('connect', () => {
+            const onReady = () => {
                 client1.emit('auth', {});
-                client1.on('profile_loaded', resolve);
-            });
+                client1.once('profile_loaded', resolve);
+            };
+            if (client1.connected) onReady();
+            else client1.once('connect', onReady);
         });
 
         await new Promise((resolve) => {
-            client2.on('connect', () => {
+            const onReady = () => {
                 client2.emit('auth', {});
-                client2.on('profile_loaded', resolve);
-            });
+                client2.once('profile_loaded', resolve);
+            };
+            if (client2.connected) onReady();
+            else client2.once('connect', onReady);
         });
 
         console.log('✅ PASS: Client 1 and Client 2 authenticated successfully.');

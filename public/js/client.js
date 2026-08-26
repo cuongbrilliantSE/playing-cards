@@ -487,31 +487,27 @@ function startOnlineMode(action, code = '') {
 }
 
 
-// ================= SOLO VS BOT AI MODE =================
-let soloInternal = {
-    botHand: [],
-    deck: [],
-    history: []
-};
+// ================= SOLO VS BOT AI MODE (4-PLAYER TABLE) =================
+let soloBots = [
+    { seat: 1, name: 'Bắc Kim Thang', avatar: '🐯', ai: null, hand: [], score: 1000, cardCount: 10, passedTrick: false, baoSam: null, hasBaoMot: false },
+    { seat: 2, name: 'Thần Bài 99', avatar: '👑', ai: null, hand: [], score: 1000, cardCount: 10, passedTrick: false, baoSam: null, hasBaoMot: false },
+    { seat: 3, name: 'Bất Bại Sâm', avatar: '🐉', ai: null, hand: [], score: 1000, cardCount: 10, passedTrick: false, baoSam: null, hasBaoMot: false }
+];
 
 function startSoloBotMode() {
     isSoloMode = true;
-    botAI = new SamLocAI('Cao Thủ AI');
-    showToast('🎮 Đấu với Bot: Trận đấu tập luyện, điểm số sẽ không được lưu vào tài khoản.');
-    gameState.roomCode = 'SOLO-BOT';
+    showToast('🎮 Bàn luyện tập 4 người: Bạn cùng 3 Cao thủ AI!');
+    gameState.roomCode = 'SOLO-4P';
     gameState.mySeat = 0;
     gameState.lastWinnerSeat = 0;
     gameState.myScore = myProfile.score;
-    gameState.opponent = {
-        name: botAI.name,
-        avatar: botAI.avatar,
-        seat: 1,
-        cardCount: 10,
-        score: 1000,
-        passedTrick: false,
-        baoSam: null,
-        hasBaoMot: false
-    };
+
+    soloBots[0].ai = new SamLocAI('Bắc Kim Thang', '🐯');
+    soloBots[1].ai = new SamLocAI('Thần Bài 99', '👑');
+    soloBots[2].ai = new SamLocAI('Bất Bại Sâm', '🐉');
+
+    gameState.opponents = soloBots;
+    gameState.opponent = soloBots[1]; // Center top opponent
 
     showScreen('gameScreen');
     updateRoomHeader();
@@ -520,49 +516,64 @@ function startSoloBotMode() {
 
 function startSoloGame() {
     gameState.selectedCardIds.clear();
-    gameState.opponentRevealedHand = [];
+    gameState.revealedHands = {};
+    gameState.myPassedTrick = false;
+    gameState.myHasBaoMot = false;
+
     const deck = shuffleDeck(createDeck());
     gameState.myHand = sortCardsByPower(deck.slice(0, 10));
-    soloInternal.botHand = sortCardsByPower(deck.slice(10, 20));
+    soloBots.forEach((b, idx) => {
+        b.hand = sortCardsByPower(deck.slice((idx + 1) * 10, (idx + 2) * 10));
+        b.cardCount = 10;
+        b.passedTrick = false;
+        b.baoSam = null;
+        b.hasBaoMot = false;
+    });
+
     gameState.tableCombo = null;
     gameState.lastPlayedBy = -1;
     gameState.baoSamPlayerSeat = -1;
     gameState.myBaoSam = null;
-    gameState.opponent.cardCount = 10;
-    gameState.opponent.passedTrick = false;
-    gameState.opponent.baoSam = null;
-    gameState.opponent.hasBaoMot = false;
 
     sounds.playCardDeal();
 
-    // Check Instant Win
+    // Check Instant Win (Tới Trắng)
+    let instantWinners = [];
     const myWin = checkInstantWin(gameState.myHand);
-    const botWin = checkInstantWin(soloInternal.botHand);
+    if (myWin) instantWinners.push({ seat: 0, name: myProfile.name, winInfo: myWin });
 
-    if (myWin || botWin) {
-        const isMe = myWin ? true : false;
-        const winInfo = isMe ? myWin : botWin;
-        const points = winInfo.multiplier || 20;
-        if (isMe) {
-            gameState.myScore += points;
-            gameState.opponent.score -= points;
-        } else {
-            gameState.myScore -= points;
-            gameState.opponent.score += points;
-        }
+    soloBots.forEach(b => {
+        const win = checkInstantWin(b.hand);
+        if (win) instantWinners.push({ seat: b.seat, name: b.name, winInfo: win });
+    });
 
-        gameState.lastWinnerSeat = isMe ? 0 : 1;
+    if (instantWinners.length > 0) {
+        instantWinners.sort((a, b) => b.winInfo.multiplier - a.winInfo.multiplier);
+        const topWinner = instantWinners[0];
+        const perPlayer = topWinner.winInfo.multiplier || 20;
+        const totalWon = perPlayer * 3;
+
+        const playersResult = [
+            { seat: 0, name: myProfile.name, avatar: myProfile.avatar, score: gameState.myScore, hand: gameState.myHand, scoreChange: topWinner.seat === 0 ? totalWon : -perPlayer },
+            ...soloBots.map(b => ({
+                seat: b.seat,
+                name: b.name,
+                avatar: b.avatar,
+                score: b.score,
+                hand: b.hand,
+                scoreChange: b.seat === topWinner.seat ? totalWon : -perPlayer
+            }))
+        ];
+
+        gameState.lastWinnerSeat = topWinner.seat;
         showRoundEndModal({
-            winnerSeat: isMe ? 0 : 1,
-            winnerName: isMe ? myProfile.name : botAI.name,
-            points: points,
+            winnerSeat: topWinner.seat,
+            winnerName: topWinner.name,
+            points: totalWon,
             isInstantWin: true,
-            instantWinName: winInfo.name,
-            penaltyDetails: [`✨ TỚI TRẮNG: ${winInfo.name} (${isMe ? '+' : '-'}${points} xu)`],
-            players: [
-                { seat: 0, name: myProfile.name, score: gameState.myScore, hand: gameState.myHand },
-                { seat: 1, name: botAI.name, score: gameState.opponent.score, hand: soloInternal.botHand }
-            ]
+            instantWinName: topWinner.winInfo.name,
+            penaltyDetails: [`✨ TỚI TRẮNG: ${topWinner.winInfo.name} (+${totalWon} xu)`],
+            players: playersResult
         });
         return;
     }
@@ -572,50 +583,79 @@ function startSoloGame() {
     gameState.phaseTimeLeft = 15;
     renderGameState();
 
-    // Bot decides Sâm after 2 seconds
+    // Bots decide Sâm after 1.5s
     setTimeout(() => {
         if (isSoloMode && gameState.status === 'BAO_SAM') {
-            const botDecides = botAI.decideBaoSam(soloInternal.botHand);
-            gameState.opponent.baoSam = botDecides;
-            if (botDecides) {
-                showToast(`${botAI.name} đã chọn Báo Sâm!`);
-            }
+            soloBots.forEach(b => {
+                b.baoSam = b.ai.decideBaoSam(b.hand);
+                if (b.baoSam) {
+                    showToast(`${b.name} đã chọn Báo Sâm!`);
+                }
+            });
             if (gameState.myBaoSam !== null) {
                 resolveSoloBaoSam();
             }
         }
-    }, 1800);
+    }, 1500);
 
     startSoloTimer('BAO_SAM');
 }
 
 function resolveSoloBaoSam() {
-    if (gameState.myBaoSam && gameState.opponent.baoSam) {
-        gameState.baoSamPlayerSeat = gameState.lastWinnerSeat; // Priority to previous winner if both call Sâm
-    } else if (gameState.myBaoSam) {
-        gameState.baoSamPlayerSeat = 0;
-    } else if (gameState.opponent.baoSam) {
-        gameState.baoSamPlayerSeat = 1;
+    const samCallers = [];
+    if (gameState.myBaoSam) samCallers.push(0);
+    soloBots.forEach(b => {
+        if (b.baoSam) samCallers.push(b.seat);
+    });
+
+    if (samCallers.length === 1) {
+        gameState.baoSamPlayerSeat = samCallers[0];
+    } else if (samCallers.length > 1) {
+        if (samCallers.includes(gameState.lastWinnerSeat)) {
+            gameState.baoSamPlayerSeat = gameState.lastWinnerSeat;
+        } else {
+            gameState.baoSamPlayerSeat = samCallers[0];
+        }
     } else {
         gameState.baoSamPlayerSeat = -1;
     }
 
     if (gameState.baoSamPlayerSeat !== -1) {
-        const name = gameState.baoSamPlayerSeat === 0 ? 'BẠN' : botAI.name;
-        showBannerAlert(`🔥 ${name} ĐÃ BÁO SÂM!`);
+        const callerName = gameState.baoSamPlayerSeat === 0 ? 'BẠN' : soloBots.find(b => b.seat === gameState.baoSamPlayerSeat)?.name;
+        showBannerAlert(`🔥 ${callerName.toUpperCase()} ĐÃ BÁO SÂM!`);
         sounds.playBaoSam();
     }
 
     gameState.status = 'PLAYING';
-    // If someone called Sâm, they go first. Otherwise previous round winner goes first!
-    gameState.currentTurnSeat = gameState.baoSamPlayerSeat !== -1 ? gameState.baoSamPlayerSeat : gameState.lastWinnerSeat;
+    gameState.currentTurnSeat = gameState.baoSamPlayerSeat !== -1 ? gameState.baoSamPlayerSeat : (gameState.lastWinnerSeat || 0);
     renderGameState();
 
-    if (gameState.currentTurnSeat === 1) {
+    if (gameState.currentTurnSeat !== 0) {
         triggerBotTurn();
     } else {
         startSoloTimer('PLAYING');
     }
+}
+
+function getNextSoloTurnSeat(fromSeat) {
+    const allSeats = [0, 1, 2, 3];
+    const isPassed = (s) => {
+        if (s === 0) return !!gameState.myPassedTrick;
+        const b = soloBots.find(bot => bot.seat === s);
+        return b ? !!b.passedTrick : true;
+    };
+
+    const activeSeats = allSeats.filter(s => !isPassed(s));
+    if (activeSeats.length === 0) return gameState.lastPlayedBy !== -1 ? gameState.lastPlayedBy : 0;
+
+    let idx = allSeats.indexOf(fromSeat);
+    for (let i = 1; i <= 4; i++) {
+        const next = allSeats[(idx + i) % 4];
+        if (!isPassed(next)) {
+            return next;
+        }
+    }
+    return gameState.lastPlayedBy !== -1 ? gameState.lastPlayedBy : 0;
 }
 
 function startSoloTimer(phase) {
@@ -630,10 +670,11 @@ function startSoloTimer(phase) {
             clearInterval(gameState.timerInterval);
             if (phase === 'BAO_SAM') {
                 if (gameState.myBaoSam === null) gameState.myBaoSam = false;
-                if (gameState.opponent.baoSam === null) gameState.opponent.baoSam = false;
+                soloBots.forEach(b => {
+                    if (b.baoSam === null) b.baoSam = false;
+                });
                 resolveSoloBaoSam();
             } else if (phase === 'PLAYING' && gameState.currentTurnSeat === 0) {
-                // Auto pass or play lowest
                 if (gameState.tableCombo && gameState.lastPlayedBy !== 0) {
                     handlePassClick();
                 } else if (gameState.myHand.length > 0) {
@@ -647,80 +688,108 @@ function startSoloTimer(phase) {
 
 function triggerBotTurn() {
     if (!isSoloMode || gameState.status !== 'PLAYING') return;
+    const botSeat = gameState.currentTurnSeat;
+    if (botSeat === 0) return;
+
+    const botObj = soloBots.find(b => b.seat === botSeat);
+    if (!botObj) return;
+
     startSoloTimer('PLAYING');
 
-    const thinkDelay = 1200 + Math.random() * 1000;
+    const thinkDelay = 1200 + Math.random() * 800;
     setTimeout(() => {
-        if (gameState.status !== 'PLAYING' || gameState.currentTurnSeat !== 1) return;
+        if (!isSoloMode || gameState.status !== 'PLAYING' || gameState.currentTurnSeat !== botSeat) return;
 
-        const isUserBaoMot = gameState.myHand.length === 1;
-        const botMove = botAI.decideMove(soloInternal.botHand, gameState.tableCombo, gameState.myHand.length, isUserBaoMot);
+        const isFreeLead = !gameState.tableCombo || gameState.tableCombo.type === COMBO_TYPES.INVALID || gameState.lastPlayedBy === botSeat;
+        const hasAnyBao1 = gameState.myHand.length === 1 || soloBots.some(b => b.seat !== botSeat && b.hand.length === 1);
+
+        const botMove = botObj.ai.decideMove(botObj.hand, isFreeLead ? null : gameState.tableCombo, hasAnyBao1);
 
         if (botMove && botMove.length > 0) {
             const moveIds = botMove.map(c => c.id);
-            const actualCards = soloInternal.botHand.filter(c => moveIds.includes(c.id));
+            const actualCards = botObj.hand.filter(c => moveIds.includes(c.id));
             const combo = evaluateCombination(actualCards);
 
-            soloInternal.botHand = soloInternal.botHand.filter(c => !moveIds.includes(c.id));
-            gameState.opponent.cardCount = soloInternal.botHand.length;
+            botObj.hand = botObj.hand.filter(c => !moveIds.includes(c.id));
+            botObj.cardCount = botObj.hand.length;
 
             const isCut2 = gameState.tableCombo && gameState.tableCombo.type === COMBO_TYPES.SINGLE && gameState.tableCombo.power === 15 && combo.type === COMBO_TYPES.QUAD;
             gameState.tableCombo = combo;
-            gameState.lastPlayedBy = 1;
-            gameState.opponent.passedTrick = false;
+            gameState.lastPlayedBy = botSeat;
 
             if (isCut2) {
                 sounds.playChatHeo();
-                showBannerAlert('💥 BOT CHẶT HEO!');
+                showBannerAlert('💥 CHẶT HEO / TỨ QUÝ!');
             } else {
                 sounds.playCardPlay();
             }
 
-            // Render played cards immediately so player sees what bot played
             renderGameState();
 
-            // Check BẮT SÂM / ĐỀN SÂM (Người Báo Sâm bị chặn 1 lần là thua ngay):
-            if (gameState.baoSamPlayerSeat === 0) {
+            // Check Bắt Sâm / Đền Sâm
+            if (gameState.baoSamPlayerSeat !== -1 && botSeat !== gameState.baoSamPlayerSeat) {
                 setTimeout(() => {
-                    handleSoloDenSam(1, 0);
-                }, 2000);
+                    handleSoloDenSam(botSeat, gameState.baoSamPlayerSeat);
+                }, 1800);
                 return;
             }
 
             // Check Báo 1
-            if (soloInternal.botHand.length === 1 && !gameState.opponent.hasBaoMot) {
-                gameState.opponent.hasBaoMot = true;
+            if (botObj.hand.length === 1 && !botObj.hasBaoMot) {
+                botObj.hasBaoMot = true;
                 sounds.playBaoMot();
-                showBannerAlert(`⚠️ ${botAI.name} BÁO CÒN 1 LÁ!`);
+                showBannerAlert(`⚠️ ${botObj.name} BÁO CÒN 1 LÁ!`);
             }
 
             // Check Win
-            if (soloInternal.botHand.length === 0) {
+            if (botObj.hand.length === 0) {
                 setTimeout(() => {
-                    handleSoloFinish(1, combo);
-                }, 2000);
+                    handleSoloFinish(botSeat, combo);
+                }, 1800);
                 return;
             }
 
-            gameState.currentTurnSeat = 0;
+            // Advance turn
+            gameState.currentTurnSeat = getNextSoloTurnSeat(botSeat);
             renderGameState();
-            startSoloTimer('PLAYING');
+
+            if (gameState.currentTurnSeat !== 0) {
+                triggerBotTurn();
+            } else {
+                startSoloTimer('PLAYING');
+            }
         } else {
             // Bot passes
             sounds.playPass();
-            gameState.opponent.passedTrick = true;
-            showBannerAlert(`⏭️ ${botAI.name.toUpperCase()} ĐÃ BỎ LƯỢT!`);
-            showToast(`${botAI.name} đã bỏ lượt!`);
+            botObj.passedTrick = true;
+            showBannerAlert(`⏭️ ${botObj.name.toUpperCase()} ĐÃ BỎ LƯỢT!`);
+            showToast(`${botObj.name} đã bỏ lượt!`);
             renderGameState();
 
             setTimeout(() => {
                 if (gameState.status !== 'PLAYING') return;
-                gameState.tableCombo = null; // Clear table
-                gameState.opponent.passedTrick = false;
-                gameState.currentTurnSeat = 0;
+
+                const activeRemaining = [
+                    { seat: 0, passedTrick: !!gameState.myPassedTrick },
+                    ...soloBots.map(b => ({ seat: b.seat, passedTrick: !!b.passedTrick }))
+                ].filter(p => !p.passedTrick);
+
+                if (activeRemaining.length <= 1) {
+                    gameState.tableCombo = null; // Clear table
+                    gameState.myPassedTrick = false;
+                    soloBots.forEach(b => b.passedTrick = false);
+                    gameState.currentTurnSeat = gameState.lastPlayedBy;
+                } else {
+                    gameState.currentTurnSeat = getNextSoloTurnSeat(botSeat);
+                }
+
                 renderGameState();
-                startSoloTimer('PLAYING');
-            }, 1500);
+                if (gameState.currentTurnSeat !== 0) {
+                    triggerBotTurn();
+                } else {
+                    startSoloTimer('PLAYING');
+                }
+            }, 1400);
         }
     }, thinkDelay);
 }
@@ -729,84 +798,85 @@ function handleSoloFinish(winnerSeat, lastCombo) {
     if (gameState.timerInterval) clearInterval(gameState.timerInterval);
     gameState.status = 'ROUND_END';
 
-    const isWinnerMe = winnerSeat === 0;
-    const loserHand = isWinnerMe ? soloInternal.botHand : gameState.myHand;
+    const winnerName = winnerSeat === 0 ? myProfile.name : soloBots.find(b => b.seat === winnerSeat)?.name;
     const isThoiHeo = lastCombo.cards.some(c => c.rank.value === '2');
 
-    const loserCardCount = loserHand.length;
-    let points = 0;
+    let totalPoints = 0;
     let details = [];
-
-    if (loserCardCount === 10) {
-        points += 15;
-        details.push(`⚠️ ${isWinnerMe ? botAI.name : 'Bạn'} BỊ CÓNG (chưa đánh lá nào) (+15 xu)`);
-    } else {
-        points += loserCardCount;
-        details.push(`${isWinnerMe ? botAI.name : 'Bạn'} còn ${loserCardCount} lá (+${loserCardCount} xu)`);
-    }
-
-    const unplayed2s = loserHand.filter(c => c.rank.value === '2').length;
-    if (unplayed2s > 0) {
-        points += unplayed2s * 10;
-        details.push(`Thối ${unplayed2s} lá Hai (+${unplayed2s * 10} xu)`);
-    }
-
-    const rankCounts = {};
-    loserHand.forEach(c => {
-        rankCounts[c.rank.value] = (rankCounts[c.rank.value] || 0) + 1;
-    });
-    const unplayedQuads = Object.values(rankCounts).filter(c => c === 4).length;
-    if (unplayedQuads > 0) {
-        points += unplayedQuads * 15;
-        details.push(`Thối ${unplayedQuads} Tứ quý (+${unplayedQuads * 15} xu)`);
-    }
-
-    if (gameState.baoSamPlayerSeat !== -1) {
-        if (gameState.baoSamPlayerSeat === winnerSeat) {
-            points = 20 + loserHand.length * 2;
-            details = [`🎉 ${isWinnerMe ? 'BẠN' : botAI.name} THẮNG SÂM THÀNH CÔNG! (+${points} xu)`];
-        } else {
-            points = 25;
-            details = [`⚠️ ${isWinnerMe ? botAI.name : 'BẠN'} BỊ ĐỀN SÂM! (+${points} xu)`];
-        }
-    }
+    const allPlayers = [
+        { seat: 0, name: myProfile.name, avatar: myProfile.avatar, score: gameState.myScore, hand: gameState.myHand },
+        ...soloBots.map(b => ({ seat: b.seat, name: b.name, avatar: b.avatar, score: b.score, hand: b.hand }))
+    ];
 
     if (isThoiHeo) {
-        points = 15;
-        details = [`⚠️ ${isWinnerMe ? 'BẠN' : botAI.name} VỀ BẰNG QUÂN 2 (BỊ PHẠT THỐI 2 & XỬ THUA) (-15 xu)!`];
-        if (isWinnerMe) {
-            gameState.myScore -= 15;
-            gameState.opponent.score += 15;
-        } else {
-            gameState.myScore += 15;
-            gameState.opponent.score -= 15;
-        }
+        const thoiPen = 20 * 3;
+        details.push(`⚠️ ${winnerName} VỀ BẰNG QUÂN 2 (BỊ PHẠT THỐI 2 & XỬ THUA) (-${thoiPen} xu)!`);
+        allPlayers.forEach(p => {
+            p.scoreChange = p.seat === winnerSeat ? -thoiPen : 20;
+        });
+        gameState.lastWinnerSeat = getNextSoloTurnSeat(winnerSeat);
     } else {
-        if (isWinnerMe) {
-            gameState.myScore += points;
-            gameState.opponent.score -= points;
-        } else {
-            gameState.myScore -= points;
-            gameState.opponent.score += points;
+        gameState.lastWinnerSeat = winnerSeat;
+        const isSamWin = gameState.baoSamPlayerSeat === winnerSeat;
+
+        allPlayers.filter(p => p.seat !== winnerSeat).forEach(loser => {
+            let loserPen = 0;
+            const loserCardCount = loser.hand.length;
+
+            if (isSamWin) {
+                loserPen = 20;
+                details.push(`${loser.name} thua Sâm (-20 xu)`);
+            } else {
+                if (loserCardCount === 10) {
+                    loserPen += 15;
+                    details.push(`⚠️ ${loser.name} BỊ CÓNG (10 lá) (-15 xu)`);
+                } else {
+                    loserPen += loserCardCount;
+                    details.push(`${loser.name} còn ${loserCardCount} lá (-${loserCardCount} xu)`);
+                }
+
+                const unplayed2s = loser.hand.filter(c => c.rank.value === '2').length;
+                if (unplayed2s > 0) {
+                    loserPen += unplayed2s * 10;
+                    details.push(`${loser.name} thối ${unplayed2s} lá 2 (-${unplayed2s * 10} xu)`);
+                }
+
+                const rankCounts = {};
+                loser.hand.forEach(c => {
+                    rankCounts[c.rank.value] = (rankCounts[c.rank.value] || 0) + 1;
+                });
+                const unplayedQuads = Object.values(rankCounts).filter(c => c === 4).length;
+                if (unplayedQuads > 0) {
+                    loserPen += unplayedQuads * 15;
+                    details.push(`${loser.name} thối ${unplayedQuads} Tứ quý (-${unplayedQuads * 15} xu)`);
+                }
+            }
+
+            totalPoints += loserPen;
+            loser.scoreChange = -loserPen;
+        });
+
+        const winP = allPlayers.find(p => p.seat === winnerSeat);
+        if (winP) winP.scoreChange = totalPoints;
+
+        if (isSamWin) {
+            details.unshift(`🎉 ${winnerName} THẮNG SÂM THÀNH CÔNG (+${totalPoints} xu)!`);
         }
     }
 
-    const effectiveWinnerSeat = isThoiHeo ? 1 - winnerSeat : winnerSeat;
-    gameState.lastWinnerSeat = effectiveWinnerSeat;
-    if (soloInternal.botHand) {
-        gameState.opponentRevealedHand = soloInternal.botHand;
-    }
-    renderOpponent();
+    gameState.revealedHands = {};
+    allPlayers.forEach(p => {
+        gameState.revealedHands[p.seat] = p.hand;
+    });
+
+    renderAllOpponents();
     showRoundEndModal({
-        winnerSeat: effectiveWinnerSeat,
-        winnerName: effectiveWinnerSeat === 0 ? myProfile.name : botAI.name,
-        points,
+        winnerSeat,
+        winnerName,
+        points: totalPoints,
         isThoiHeoEnd: isThoiHeo,
         penaltyDetails: details,
-        players: [
-            { seat: 0, name: myProfile.name, score: gameState.myScore, hand: gameState.myHand },
-            { seat: 1, name: botAI.name, score: gameState.opponent.score, hand: soloInternal.botHand }
-        ]
+        players: allPlayers
     });
 }
 
@@ -814,38 +884,42 @@ function handleSoloDenSam(interceptorSeat, sâmPlayerSeat) {
     if (gameState.timerInterval) clearInterval(gameState.timerInterval);
     gameState.status = 'ROUND_END';
 
-    const isWinnerMe = interceptorSeat === 0;
-    const winnerName = isWinnerMe ? myProfile.name : botAI.name;
-    const loserName = isWinnerMe ? botAI.name : 'BẠN';
-    const points = 25;
+    const interceptorName = interceptorSeat === 0 ? myProfile.name : soloBots.find(b => b.seat === interceptorSeat)?.name;
+    const sâmName = sâmPlayerSeat === 0 ? 'BẠN' : soloBots.find(b => b.seat === sâmPlayerSeat)?.name;
+
+    const denPoints = 20 * 3;
     gameState.lastWinnerSeat = interceptorSeat;
 
-    if (isWinnerMe) {
-        gameState.myScore += points;
-        gameState.opponent.score -= points;
+    const allPlayers = [
+        { seat: 0, name: myProfile.name, avatar: myProfile.avatar, score: gameState.myScore, hand: gameState.myHand },
+        ...soloBots.map(b => ({ seat: b.seat, name: b.name, avatar: b.avatar, score: b.score, hand: b.hand }))
+    ];
+
+    allPlayers.forEach(p => {
+        p.scoreChange = p.seat === sâmPlayerSeat ? -denPoints : 20;
+    });
+
+    if (interceptorSeat === 0) {
         sounds.playChatHeo();
         showBannerAlert('💥 BẠN ĐÃ BẮT SÂM THÀNH CÔNG!');
     } else {
-        gameState.myScore -= points;
-        gameState.opponent.score += points;
         sounds.playLose();
-        showBannerAlert(`💔 ${botAI.name} ĐÃ BẮT SÂM! BẠN BỊ ĐỀN SÂM!`);
+        showBannerAlert(`💔 ${interceptorName} ĐÃ BẮT SÂM! ${sâmName} BỊ ĐỀN SÂM!`);
     }
 
-    if (soloInternal.botHand) {
-        gameState.opponentRevealedHand = soloInternal.botHand;
-    }
-    renderOpponent();
+    gameState.revealedHands = {};
+    allPlayers.forEach(p => {
+        gameState.revealedHands[p.seat] = p.hand;
+    });
+
+    renderAllOpponents();
     showRoundEndModal({
         winnerSeat: interceptorSeat,
-        winnerName: winnerName,
-        points,
+        winnerName: interceptorName,
+        points: denPoints,
         isDenSam: true,
-        penaltyDetails: [`💥 ${isWinnerMe ? 'BẠN' : botAI.name} ĐÃ BẮT SÂM THÀNH CÔNG! ${loserName} BỊ PHẠT ĐỀN SÂM (-${points} xu)!`],
-        players: [
-            { seat: 0, name: myProfile.name, score: gameState.myScore, hand: gameState.myHand },
-            { seat: 1, name: botAI.name, score: gameState.opponent.score, hand: soloInternal.botHand }
-        ]
+        penaltyDetails: [`💥 ${interceptorName} ĐÃ BẮT SÂM THÀNH CÔNG! ${sâmName} BỊ PHẠT ĐỀN SÂM (-${denPoints} xu)!`],
+        players: allPlayers
     });
 }
 
@@ -939,7 +1013,8 @@ function handlePlayClick() {
     }
 
     // Special: Báo 1 check
-    if (gameState.opponent && gameState.opponent.hasBaoMot && isFreeLead && evalCombo.type === COMBO_TYPES.SINGLE) {
+    const hasAnyBao1 = isSoloMode ? soloBots.some(b => b.hasBaoMot || b.hand.length === 1) : (gameState.opponents && gameState.opponents.some(o => o.hasBaoMot || o.cardCount === 1));
+    if (hasAnyBao1 && isFreeLead && evalCombo.type === COMBO_TYPES.SINGLE) {
         const highestCard = gameState.myHand[gameState.myHand.length - 1];
         if (evalCombo.power < highestCard.power) {
             showToast('Đối thủ đã Báo 1! Bạn phải đánh lá lớn nhất để chặn.');
@@ -948,7 +1023,6 @@ function handlePlayClick() {
     }
 
     if (isSoloMode) {
-        // Execute move in solo mode
         const playedIds = selectedCards.map(c => c.id);
         gameState.myHand = gameState.myHand.filter(c => !playedIds.includes(c.id));
         const isCut2 = gameState.tableCombo && gameState.tableCombo.type === COMBO_TYPES.SINGLE && gameState.tableCombo.power === 15 && evalCombo.type === COMBO_TYPES.QUAD;
@@ -964,19 +1038,19 @@ function handlePlayClick() {
             sounds.playCardPlay();
         }
 
-        // Render played cards immediately
         renderGameState();
 
-        // Check BẮT SÂM / ĐỀN SÂM (Bot Báo Sâm bị User chặn -> Thua ngay lập tức):
-        if (gameState.baoSamPlayerSeat === 1) {
+        // Check Bắt Sâm / Đền Sâm
+        if (gameState.baoSamPlayerSeat !== -1 && gameState.baoSamPlayerSeat !== 0) {
             setTimeout(() => {
-                handleSoloDenSam(0, 1);
+                handleSoloDenSam(0, gameState.baoSamPlayerSeat);
             }, 1800);
             return;
         }
 
         // Check Báo 1 for user
-        if (gameState.myHand.length === 1) {
+        if (gameState.myHand.length === 1 && !gameState.myHasBaoMot) {
+            gameState.myHasBaoMot = true;
             sounds.playBaoMot();
             showBannerAlert('⚠️ BẠN ĐÃ BÁO 1!');
         }
@@ -989,9 +1063,14 @@ function handlePlayClick() {
             return;
         }
 
-        gameState.currentTurnSeat = 1;
+        gameState.currentTurnSeat = getNextSoloTurnSeat(0);
         renderGameState();
-        triggerBotTurn();
+
+        if (gameState.currentTurnSeat !== 0) {
+            triggerBotTurn();
+        } else {
+            startSoloTimer('PLAYING');
+        }
     } else if (socket) {
         socket.emit('play_cards', {
             roomCode: gameState.roomCode,
@@ -1010,18 +1089,34 @@ function handlePassClick() {
 
     if (isSoloMode) {
         sounds.playPass();
-        gameState.passedTrick = true;
+        gameState.myPassedTrick = true;
         showBannerAlert('⏭️ BẠN ĐÃ BỎ LƯỢT!');
         renderGameState();
 
         setTimeout(() => {
             if (gameState.status !== 'PLAYING') return;
-            gameState.tableCombo = null; // Clear table
-            gameState.passedTrick = false;
-            gameState.currentTurnSeat = 1;
+
+            const activeRemaining = [
+                { seat: 0, passedTrick: !!gameState.myPassedTrick },
+                ...soloBots.map(b => ({ seat: b.seat, passedTrick: !!b.passedTrick }))
+            ].filter(p => !p.passedTrick);
+
+            if (activeRemaining.length <= 1) {
+                gameState.tableCombo = null; // Clear table
+                gameState.myPassedTrick = false;
+                soloBots.forEach(b => b.passedTrick = false);
+                gameState.currentTurnSeat = gameState.lastPlayedBy;
+            } else {
+                gameState.currentTurnSeat = getNextSoloTurnSeat(0);
+            }
+
             renderGameState();
-            triggerBotTurn();
-        }, 1500);
+            if (gameState.currentTurnSeat !== 0) {
+                triggerBotTurn();
+            } else {
+                startSoloTimer('PLAYING');
+            }
+        }, 1400);
     } else if (socket) {
         socket.emit('pass_turn', { roomCode: gameState.roomCode });
     }
@@ -1037,7 +1132,7 @@ function handleBaoSamChoice(choice) {
             showToast('Bạn đã chọn không báo Sâm.');
         }
         renderGameState();
-        if (gameState.opponent.baoSam !== null) {
+        if (soloBots.every(b => b.baoSam !== null)) {
             resolveSoloBaoSam();
         }
     } else if (socket) {
@@ -1127,12 +1222,20 @@ function applyGameState(state) {
     updateLobbyBalance();
     gameState.myBaoSam = state.myBaoSam;
     gameState.opponent = state.opponent;
+    gameState.opponents = state.opponents || (state.opponent ? [state.opponent] : []);
+    gameState.players = state.players || [];
     gameState.currentTurnSeat = state.currentTurnSeat;
     gameState.tableCombo = state.tableCombo;
     gameState.lastPlayedBy = state.lastPlayedBy;
     gameState.baoSamPlayerSeat = state.baoSamPlayerSeat;
     gameState.turnTimeLeft = state.turnTimeLeft;
     gameState.phaseTimeLeft = state.phaseTimeLeft;
+
+    const me = state.players ? state.players.find(p => p.seat === state.mySeat) : null;
+    if (me) {
+        gameState.myPassedTrick = me.passedTrick;
+        gameState.myHasBaoMot = me.hasBaoMot;
+    }
 
     renderGameState();
 }
@@ -1162,7 +1265,6 @@ function checkAndExecuteAutoActions() {
     if (isOpponentSam && !isFreeLead) {
         const playable = findPlayableCombinations(gameState.myHand, gameState.tableCombo);
         if (playable.length > 0) {
-            // Pick lowest power beating combo to conserve cards
             playable.sort((a, b) => {
                 const evA = evaluateCombination(a);
                 const evB = evaluateCombination(b);
@@ -1186,7 +1288,6 @@ function checkAndExecuteAutoActions() {
     const entireCombo = evaluateCombination(gameState.myHand);
     if (entireCombo.type !== COMBO_TYPES.INVALID) {
         const contains2 = gameState.myHand.some(c => c.rank.value === '2');
-        // Luật Sâm Lốc: Tuyệt đối không được về bằng quân 2 (hoặc đôi 2)
         if (!contains2) {
             if (isFreeLead) {
                 gameState.selectedCardIds = new Set(gameState.myHand.map(c => c.id));
@@ -1216,22 +1317,79 @@ function checkAndExecuteAutoActions() {
 }
 
 function renderGameState() {
-    renderOpponent();
+    renderAllOpponents();
     renderTableCenter();
     renderMyHand();
     renderControls();
     checkAndExecuteAutoActions();
 }
 
-function renderOpponent() {
-    const cardEl = document.getElementById('opponentCard');
-    const nameEl = document.getElementById('opponentName');
-    const avatarEl = document.getElementById('opponentAvatar');
-    const scoreEl = document.getElementById('opponentScore');
-    const statusTagEl = document.getElementById('opponentStatusTag');
-    const fanEl = document.getElementById('opponentCardsFan');
+function renderAllOpponents() {
+    const oppTopArea = document.getElementById('opponentTopArea');
+    const oppLeftArea = document.getElementById('opponentLeftArea');
+    const oppRightArea = document.getElementById('opponentRightArea');
 
-    if (!gameState.opponent) {
+    const opponents = isSoloMode ? soloBots : (gameState.opponents || (gameState.opponent ? [gameState.opponent] : []));
+    const mySeat = gameState.mySeat !== undefined ? gameState.mySeat : 0;
+
+    if (opponents.length === 0) {
+        renderOpponentCard('opponentCard', 'opponentName', 'opponentAvatar', 'opponentScore', 'opponentStatusTag', 'opponentCardsFan', null);
+        if (oppLeftArea) oppLeftArea.style.display = 'none';
+        if (oppRightArea) oppRightArea.style.display = 'none';
+        return;
+    }
+
+    if (opponents.length === 1) {
+        renderOpponentCard('opponentCard', 'opponentName', 'opponentAvatar', 'opponentScore', 'opponentStatusTag', 'opponentCardsFan', opponents[0]);
+        if (oppLeftArea) oppLeftArea.style.display = 'none';
+        if (oppRightArea) oppRightArea.style.display = 'none';
+        return;
+    }
+
+    // 3 or 4 players game: Map by relative seat offset
+    let leftOpp = null, topOpp = null, rightOpp = null;
+
+    opponents.forEach(opp => {
+        const offset = (opp.seat - mySeat + 4) % 4;
+        if (offset === 1) leftOpp = opp;
+        else if (offset === 2) topOpp = opp;
+        else if (offset === 3) rightOpp = opp;
+        else topOpp = opp;
+    });
+
+    if (topOpp) {
+        if (oppTopArea) oppTopArea.style.display = 'flex';
+        renderOpponentCard('opponentCard', 'opponentName', 'opponentAvatar', 'opponentScore', 'opponentStatusTag', 'opponentCardsFan', topOpp);
+    } else {
+        renderOpponentCard('opponentCard', 'opponentName', 'opponentAvatar', 'opponentScore', 'opponentStatusTag', 'opponentCardsFan', null);
+    }
+
+    if (leftOpp) {
+        if (oppLeftArea) oppLeftArea.style.display = 'flex';
+        renderOpponentCard('opponentLeftCard', 'opponentLeftName', 'opponentLeftAvatar', 'opponentLeftScore', 'opponentLeftStatusTag', 'opponentLeftCardsFan', leftOpp);
+    } else {
+        if (oppLeftArea) oppLeftArea.style.display = 'none';
+    }
+
+    if (rightOpp) {
+        if (oppRightArea) oppRightArea.style.display = 'flex';
+        renderOpponentCard('opponentRightCard', 'opponentRightName', 'opponentRightAvatar', 'opponentRightScore', 'opponentRightStatusTag', 'opponentRightCardsFan', rightOpp);
+    } else {
+        if (oppRightArea) oppRightArea.style.display = 'none';
+    }
+}
+
+function renderOpponentCard(cardId, nameId, avatarId, scoreId, statusTagId, fanId, opp) {
+    const cardEl = document.getElementById(cardId);
+    const nameEl = document.getElementById(nameId);
+    const avatarEl = document.getElementById(avatarId);
+    const scoreEl = document.getElementById(scoreId);
+    const statusTagEl = document.getElementById(statusTagId);
+    const fanEl = document.getElementById(fanId);
+
+    if (!cardEl || !nameEl || !avatarEl || !scoreEl || !statusTagEl || !fanEl) return;
+
+    if (!opp) {
         nameEl.innerText = 'Đang chờ đối thủ...';
         avatarEl.innerText = '⏳';
         scoreEl.innerText = '';
@@ -1241,12 +1399,12 @@ function renderOpponent() {
         return;
     }
 
-    nameEl.innerText = gameState.opponent.name;
-    avatarEl.innerText = gameState.opponent.avatar;
-    scoreEl.innerHTML = `<span class="coin-icon"></span> ${gameState.opponent.score.toLocaleString()} xu`;
+    nameEl.innerText = opp.name;
+    avatarEl.innerText = opp.avatar || '🐯';
+    scoreEl.innerHTML = `<span class="coin-icon"></span> ${(opp.score || 0).toLocaleString()} xu`;
 
     // Active turn highlight
-    if (gameState.status === 'PLAYING' && gameState.currentTurnSeat === gameState.opponent.seat) {
+    if (gameState.status === 'PLAYING' && gameState.currentTurnSeat === opp.seat) {
         cardEl.classList.add('active-turn');
     } else {
         cardEl.classList.remove('active-turn');
@@ -1254,65 +1412,57 @@ function renderOpponent() {
 
     // Status tags
     statusTagEl.style.display = 'inline-block';
-    if (gameState.opponent.baoSam) {
+    if (opp.baoSam) {
         statusTagEl.className = 'status-tag tag-sam';
         statusTagEl.innerText = 'BÁO SÂM';
-    } else if (gameState.opponent.hasBaoMot || gameState.opponent.cardCount === 1) {
+    } else if (opp.hasBaoMot || opp.cardCount === 1) {
         statusTagEl.className = 'status-tag tag-bao1';
         statusTagEl.innerText = 'BÁO 1 LÁ';
-    } else if (gameState.opponent.passedTrick) {
+    } else if (opp.passedTrick) {
         statusTagEl.className = 'status-tag tag-pass';
         statusTagEl.innerText = 'BỎ LƯỢT';
     } else {
         statusTagEl.style.display = 'none';
     }
 
-    // Render Card Back Fan or Revealed Cards
+    // Render cards fan
     fanEl.innerHTML = '';
-
-    if (gameState.status === 'ROUND_END' && gameState.opponentRevealedHand && gameState.opponentRevealedHand.length > 0) {
+    const revealedHand = gameState.revealedHands ? gameState.revealedHands[opp.seat] : (gameState.opponentRevealedHand && opp.seat === 1 ? gameState.opponentRevealedHand : null);
+    if (gameState.status === 'ROUND_END' && revealedHand && revealedHand.length > 0) {
         const stackDiv = document.createElement('div');
         stackDiv.className = 'card-back-stack';
-        stackDiv.style.paddingLeft = '18px';
-
-        gameState.opponentRevealedHand.forEach((card, idx) => {
+        revealedHand.forEach((card, idx) => {
             const leaf = document.createElement('div');
             leaf.className = 'card-revealed-leaf';
             leaf.style.backgroundImage = `url('${card.image || 'cards/' + card.suit.key + '-' + card.rank.value + '.png'}')`;
-            const rot = (idx - gameState.opponentRevealedHand.length / 2) * 4;
+            const rot = (idx - revealedHand.length / 2) * 4;
             leaf.style.transform = `rotate(${rot}deg) translateY(${Math.abs(rot) * 0.6}px)`;
             leaf.title = `${card.rank.value} ${card.suit.name}`;
             stackDiv.appendChild(leaf);
         });
-
         const countBadge = document.createElement('div');
         countBadge.className = 'opponent-cards-count';
         countBadge.style.background = '#0284c7';
-        countBadge.innerText = `Ngửa bài: ${gameState.opponentRevealedHand.length} lá`;
+        countBadge.innerText = `${revealedHand.length} lá`;
         stackDiv.appendChild(countBadge);
-
         fanEl.appendChild(stackDiv);
-        return;
+    } else {
+        const count = opp.cardCount || 0;
+        const stackDiv = document.createElement('div');
+        stackDiv.className = 'card-back-stack';
+        for (let i = 0; i < Math.min(count, 10); i++) {
+            const leaf = document.createElement('div');
+            leaf.className = 'card-back-leaf';
+            const rot = (i - count / 2) * 3;
+            leaf.style.transform = `rotate(${rot}deg) translateY(${Math.abs(rot) * 0.8}px)`;
+            stackDiv.appendChild(leaf);
+        }
+        const countBadge = document.createElement('div');
+        countBadge.className = 'opponent-cards-count';
+        countBadge.innerText = `${count} lá`;
+        stackDiv.appendChild(countBadge);
+        fanEl.appendChild(stackDiv);
     }
-
-    const count = gameState.opponent.cardCount || 0;
-    const stackDiv = document.createElement('div');
-    stackDiv.className = 'card-back-stack';
-
-    for (let i = 0; i < Math.min(count, 10); i++) {
-        const leaf = document.createElement('div');
-        leaf.className = 'card-back-leaf';
-        const rot = (i - count / 2) * 3;
-        leaf.style.transform = `rotate(${rot}deg) translateY(${Math.abs(rot) * 0.8}px)`;
-        stackDiv.appendChild(leaf);
-    }
-
-    const countBadge = document.createElement('div');
-    countBadge.className = 'opponent-cards-count';
-    countBadge.innerText = `${count} lá`;
-    stackDiv.appendChild(countBadge);
-
-    fanEl.appendChild(stackDiv);
 }
 
 function renderTableCenter() {
@@ -1332,12 +1482,57 @@ function renderTableCenter() {
     const row = document.createElement('div');
     row.className = 'played-cards-row';
 
-    gameState.tableCombo.cards.forEach((card, idx) => {
+    const cards = gameState.tableCombo.cards;
+    const count = cards.length;
+
+    // Dynamic negative margin and scaling for long combos (>3 cards) to fit on mobile perfectly
+    let marginOffset = 0;
+    let scaleVal = 0.95;
+
+    // Check if viewport is mobile
+    const isMobile = window.innerWidth <= 640;
+    const isSmallMobile = window.innerWidth <= 380;
+
+    if (isSmallMobile) {
+        if (count === 2) marginOffset = -18;
+        else if (count === 3) marginOffset = -32;
+        else if (count === 4) marginOffset = -42;
+        else if (count === 5) { marginOffset = -48; scaleVal = 0.90; }
+        else if (count === 6) { marginOffset = -52; scaleVal = 0.85; }
+        else if (count === 7) { marginOffset = -54; scaleVal = 0.80; }
+        else if (count >= 8) { marginOffset = -56; scaleVal = 0.76; }
+    } else if (isMobile) {
+        if (count === 2) marginOffset = -20;
+        else if (count === 3) marginOffset = -36;
+        else if (count === 4) marginOffset = -46;
+        else if (count === 5) { marginOffset = -52; scaleVal = 0.92; }
+        else if (count === 6) { marginOffset = -56; scaleVal = 0.88; }
+        else if (count === 7) { marginOffset = -58; scaleVal = 0.84; }
+        else if (count >= 8) { marginOffset = -60; scaleVal = 0.80; }
+    } else {
+        // Desktop / Tablet
+        if (count === 2) marginOffset = -22;
+        else if (count === 3) marginOffset = -42;
+        else if (count === 4) marginOffset = -56;
+        else if (count === 5) { marginOffset = -66; scaleVal = 0.94; }
+        else if (count === 6) { marginOffset = -72; scaleVal = 0.90; }
+        else if (count === 7) { marginOffset = -76; scaleVal = 0.86; }
+        else if (count >= 8) { marginOffset = -80; scaleVal = 0.82; }
+    }
+
+    cards.forEach((card, idx) => {
         const cDiv = document.createElement('div');
-        cDiv.className = 'card-item';
+        cDiv.className = 'card-item played-table-card';
         cDiv.style.backgroundImage = `url('${card.image || 'cards/' + card.suit.key + '-' + card.rank.value + '.png'}')`;
-        const rot = (idx - gameState.tableCombo.cards.length / 2) * 4;
-        cDiv.style.transform = `rotate(${rot}deg) scale(0.95)`;
+        cDiv.title = `${card.rank.value} ${card.suit.name}`;
+        cDiv.style.zIndex = 10 + idx;
+
+        if (idx > 0) {
+            cDiv.style.marginLeft = `${marginOffset}px`;
+        }
+
+        const rot = (idx - count / 2) * (count > 5 ? 1.8 : 3);
+        cDiv.style.transform = `rotate(${rot}deg) scale(${scaleVal})`;
         row.appendChild(cDiv);
     });
 
@@ -1612,92 +1807,59 @@ function showRoundEndModal(data) {
     `;
     breakdown.appendChild(balanceItem);
 
-    // Render Revealed Hands (Ngửa bài đối thủ & người chơi)
-    if (data.players && data.players.length > 0) {
-        const opp = data.players.find(p => p.seat !== gameState.mySeat);
-        const me = data.players.find(p => p.seat === gameState.mySeat);
+        // Render Revealed Hands for all players (Ngửa bài cả bàn)
+        if (data.players && data.players.length > 0) {
+            const handsWrapper = document.createElement('div');
+            handsWrapper.className = 'revealed-hands-container';
 
-        const handsWrapper = document.createElement('div');
-        handsWrapper.className = 'revealed-hands-container';
+            data.players.forEach(p => {
+                const isMe = p.seat === gameState.mySeat;
+                const pBlock = document.createElement('div');
+                pBlock.className = 'revealed-hand-block';
+                pBlock.style.borderTop = '1px dashed rgba(255, 255, 255, 0.15)';
+                pBlock.style.paddingTop = '8px';
 
-        // Opponent's Hand
-        if (opp) {
-            const oppBlock = document.createElement('div');
-            oppBlock.className = 'revealed-hand-block';
-            
-            const isOppEndOnTwo = data.isThoiHeoEnd && (!opp.hand || opp.hand.length === 0);
+                const pHeader = document.createElement('div');
+                pHeader.className = 'revealed-hand-header';
+                const cardCount = p.hand ? p.hand.length : 0;
+                const scoreChangeStr = p.scoreChange !== undefined ? (p.scoreChange >= 0 ? `+${p.scoreChange}` : `${p.scoreChange}`) : '';
 
-            const oppHeader = document.createElement('div');
-            oppHeader.className = 'revealed-hand-header';
-            const oppCardCount = opp.hand ? opp.hand.length : 0;
-            oppHeader.innerHTML = `
-                <span style="color: #38bdf8;">🃏 Bài đối thủ (${opp.name || 'Đối thủ'}):</span>
-                <span style="color: #94a3b8;">${oppCardCount > 0 ? oppCardCount + ' lá còn lại' : (isOppEndOnTwo ? 'Về bằng 2 (Thua)' : 'Đã hết bài')}</span>
-            `;
-            oppBlock.appendChild(oppHeader);
+                pHeader.innerHTML = `
+                    <span style="color: ${isMe ? '#fbbf24' : '#38bdf8'}; font-weight: 700;">${p.avatar || '👤'} ${p.name || `Người chơi ${p.seat + 1}`}:</span>
+                    <span style="color: #94a3b8;">${cardCount > 0 ? cardCount + ' lá' : 'Đã hết bài'} ${scoreChangeStr ? `<strong style="color: ${p.scoreChange >= 0 ? '#4ade80' : '#f87171'}; margin-left: 6px;">(${scoreChangeStr} xu)</strong>` : ''}</span>
+                `;
+                pBlock.appendChild(pHeader);
 
-            const oppRow = document.createElement('div');
-            oppRow.className = 'revealed-cards-row';
-            if (opp.hand && opp.hand.length > 0) {
-                opp.hand.forEach(c => {
-                    const mini = document.createElement('div');
-                    mini.className = 'mini-card-item';
-                    mini.style.backgroundImage = `url('${c.image || 'cards/' + c.suit.key + '-' + c.rank.value + '.png'}')`;
-                    mini.title = `${c.rank.value} ${c.suit.name}`;
-                    oppRow.appendChild(mini);
-                });
-            } else {
-                if (isOppEndOnTwo) {
-                    oppRow.innerHTML = `<span style="font-size: 0.88rem; color: #ef4444; font-style: italic; font-weight: 700;">⚠️ Đã đánh hết bài nhưng VỀ BẰNG QUÂN 2 (Bị xử thua & phạt thối 2)</span>`;
+                const pRow = document.createElement('div');
+                pRow.className = 'revealed-cards-row';
+                if (p.hand && p.hand.length > 0) {
+                    p.hand.forEach(c => {
+                        const mini = document.createElement('div');
+                        mini.className = 'mini-card-item';
+                        mini.style.backgroundImage = `url('${c.image || 'cards/' + c.suit.key + '-' + c.rank.value + '.png'}')`;
+                        mini.title = `${c.rank.value} ${c.suit.name}`;
+                        pRow.appendChild(mini);
+                    });
                 } else {
-                    oppRow.innerHTML = `<span style="font-size: 0.85rem; color: #4ade80; font-style: italic;">(Đã đánh hết 10 lá - Về nhất)</span>`;
+                    pRow.innerHTML = `<span style="font-size: 0.85rem; color: #4ade80; font-style: italic;">(Đã đánh hết 10 lá - Về nhất)</span>`;
                 }
-            }
-            oppBlock.appendChild(oppRow);
-            handsWrapper.appendChild(oppBlock);
-        }
-
-        // My Remaining Hand (if lost with cards remaining or won due to opponent's thối 2)
-        if (me && me.hand && me.hand.length > 0) {
-            const myBlock = document.createElement('div');
-            myBlock.className = 'revealed-hand-block';
-            myBlock.style.borderTop = '1px dashed rgba(255, 255, 255, 0.15)';
-            myBlock.style.paddingTop = '8px';
-
-            const myHeader = document.createElement('div');
-            myHeader.className = 'revealed-hand-header';
-            myHeader.innerHTML = `
-                <span style="color: #fbbf24;">🃏 Bài của bạn còn lại:</span>
-                <span style="color: #94a3b8;">${me.hand.length} lá ${data.isThoiHeoEnd && isMeWinner ? '(Thắng do đối thủ thối 2)' : ''}</span>
-            `;
-            myBlock.appendChild(myHeader);
-
-            const myRow = document.createElement('div');
-            myRow.className = 'revealed-cards-row';
-            me.hand.forEach(c => {
-                const mini = document.createElement('div');
-                mini.className = 'mini-card-item';
-                mini.style.backgroundImage = `url('${c.image || 'cards/' + c.suit.key + '-' + c.rank.value + '.png'}')`;
-                mini.title = `${c.rank.value} ${c.suit.name}`;
-                myRow.appendChild(mini);
+                pBlock.appendChild(pRow);
+                handsWrapper.appendChild(pBlock);
             });
-            myBlock.appendChild(myRow);
-            handsWrapper.appendChild(myBlock);
+
+            breakdown.appendChild(handsWrapper);
         }
 
-        breakdown.appendChild(handsWrapper);
-    }
-
-    if (isSoloMode) {
-        const warningItem = document.createElement('div');
-        warningItem.style.marginTop = '12px';
-        warningItem.style.fontSize = '0.8rem';
-        warningItem.style.color = '#f87171'; // soft red warning color
-        warningItem.style.textAlign = 'center';
-        warningItem.style.fontWeight = '600';
-        warningItem.innerText = '* Kết quả ván luyện tập (Đấu với máy) không được lưu vào tài khoản.';
-        breakdown.appendChild(warningItem);
-    }
+        if (isSoloMode) {
+            const warningItem = document.createElement('div');
+            warningItem.style.marginTop = '12px';
+            warningItem.style.fontSize = '0.8rem';
+            warningItem.style.color = '#f87171';
+            warningItem.style.textAlign = 'center';
+            warningItem.style.fontWeight = '600';
+            warningItem.innerText = '* Kết quả ván luyện tập (Đấu với máy) không được lưu vào tài khoản.';
+            breakdown.appendChild(warningItem);
+        }
 
     modal.classList.add('show');
 }
@@ -1831,7 +1993,7 @@ const VoiceChatManager = {
                     sum += dataArray[i];
                 }
                 const avg = sum / dataArray.length;
-                const speakingNow = avg > 20; // Voice activity threshold
+                const speakingNow = avg > 20;
 
                 if (speakingNow !== this.isSpeaking) {
                     this.setSpeaking(speakingNow);
@@ -1896,7 +2058,7 @@ const VoiceChatManager = {
             this.peerConnection.oniceconnectionstatechange = () => {
                 console.log('WebRTC ICE Connection State:', this.peerConnection.iceConnectionState);
                 if (this.peerConnection.iceConnectionState === 'connected') {
-                    showToast('🎙️ Đã kết nối Voice Chat với đối thủ!');
+                    showToast('🎙️ Đã kết nối Voice Chat với bàn chơi!');
                 }
             };
 
@@ -1950,7 +2112,6 @@ const VoiceChatManager = {
 
             await this.peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
 
-            // Flush any buffered candidates
             while (this.iceCandidatesQueue.length > 0) {
                 const candidate = this.iceCandidatesQueue.shift();
                 await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn(e));
@@ -1996,14 +2157,33 @@ const VoiceChatManager = {
     },
 
     handleVoiceState(data) {
-        const oppAvatar = document.getElementById('opponentAvatar');
-        const oppCard = document.getElementById('opponentCard');
-        if (oppAvatar) {
-            oppAvatar.classList.toggle('is-speaking', !!data.isSpeaking);
+        const mySeat = gameState.mySeat !== undefined ? gameState.mySeat : 0;
+        if (data.seat === mySeat) {
+            const myAvatar = document.getElementById('myAvatar');
+            const myCard = document.getElementById('myProfileCard');
+            if (myAvatar) myAvatar.classList.toggle('is-speaking', !!data.isSpeaking);
+            if (myCard) myCard.classList.toggle('is-speaking', !!data.isSpeaking);
+            return;
         }
-        if (oppCard) {
-            oppCard.classList.toggle('is-speaking', !!data.isSpeaking);
+
+        const offset = (data.seat - mySeat + 4) % 4;
+        let avatarEl = null, cardEl = null;
+        if (offset === 1) {
+            avatarEl = document.getElementById('opponentLeftAvatar');
+            cardEl = document.getElementById('opponentLeftCard');
+        } else if (offset === 2) {
+            avatarEl = document.getElementById('opponentAvatar');
+            cardEl = document.getElementById('opponentCard');
+        } else if (offset === 3) {
+            avatarEl = document.getElementById('opponentRightAvatar');
+            cardEl = document.getElementById('opponentRightCard');
+        } else {
+            avatarEl = document.getElementById('opponentAvatar');
+            cardEl = document.getElementById('opponentCard');
         }
+
+        if (avatarEl) avatarEl.classList.toggle('is-speaking', !!data.isSpeaking);
+        if (cardEl) cardEl.classList.toggle('is-speaking', !!data.isSpeaking);
     },
 
     async toggleMic() {
