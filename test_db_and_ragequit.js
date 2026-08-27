@@ -272,6 +272,12 @@ async function runTests() {
             // p2 joins room
             socketP2.emit('join_room', { roomCode });
         });
+
+        socketP1.on('game_state', (state) => {
+            if (state.status === 'WAITING' && state.players && state.players.length >= 2) {
+                socketP1.emit('start_game_host', { roomCode });
+            }
+        });
         
         // When game starts (status PLAYING/BAO_SAM)
         let isReconnectedTested = false;
@@ -377,6 +383,12 @@ async function runTests() {
         socketP3.on('room_created', (data) => {
             roomCode7 = data.roomCode;
             socketP4.emit('join_room', { roomCode: roomCode7 });
+        });
+
+        socketP3.on('game_state', (state) => {
+            if (state.status === 'WAITING' && state.players && state.players.length >= 2) {
+                socketP3.emit('start_game_host', { roomCode: roomCode7 });
+            }
         });
         
         socketP4.on('opponent_forfeit', async (data) => {

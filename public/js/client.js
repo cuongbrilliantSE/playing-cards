@@ -376,12 +376,9 @@ function connectSocket() {
             showScreen('gameScreen');
             updateRoomHeader();
             showToast(`Đã vào phòng ${data.roomCode}! Trận đấu bắt đầu!`);
-            // Initiate WebRTC voice connection from joiner (seat 1) to host (seat 0)
-            if (data.seat === 1) {
-                setTimeout(() => {
-                    VoiceChatManager.start(true);
-                }, 600);
-            }
+            setTimeout(() => {
+                VoiceChatManager.syncPeers();
+            }, 600);
         });
 
         socket.on('join_error', (data) => {
@@ -460,9 +457,10 @@ function connectSocket() {
 
         socket.on('player_left', (data) => {
             showToast(`${data.name} đã rời khỏi bàn chơi!`);
-            gameState.opponent = null;
-            VoiceChatManager.stop();
-            renderOpponent();
+            if (data.seat !== undefined) {
+                VoiceChatManager.cleanupPeerConnection(data.seat);
+            }
+            renderAllOpponents();
         });
 
         socket.on('room_left', () => {
@@ -470,17 +468,20 @@ function connectSocket() {
             window.location.href = window.location.pathname;
         });
 
-        // ================= WebRTC Voice Chat Events =================
+        // ================= WebRTC Voice Chat Events (Mesh Topology) =================
         socket.on('webrtc_offer', (data) => {
-            VoiceChatManager.handleOffer(data.sdp);
+            const fromSeat = data.fromSeat !== undefined ? data.fromSeat : 0;
+            VoiceChatManager.handleOffer(fromSeat, data.sdp);
         });
 
         socket.on('webrtc_answer', (data) => {
-            VoiceChatManager.handleAnswer(data.sdp);
+            const fromSeat = data.fromSeat !== undefined ? data.fromSeat : 1;
+            VoiceChatManager.handleAnswer(fromSeat, data.sdp);
         });
 
         socket.on('webrtc_ice_candidate', (data) => {
-            VoiceChatManager.handleCandidate(data.candidate);
+            const fromSeat = data.fromSeat !== undefined ? data.fromSeat : 0;
+            VoiceChatManager.handleCandidate(fromSeat, data.candidate);
         });
 
         socket.on('webrtc_voice_state', (data) => {
@@ -1297,6 +1298,7 @@ function applyGameState(state) {
 
     updateRoomHeader();
     renderGameState();
+    VoiceChatManager.syncPeers();
 }
 
 let autoActionTimeout = null;
@@ -2016,9 +2018,11 @@ function renderFloatingEmote(emote, seat) {
     }, 2000);
 }
 
-// ================= WEBRTC VOICE CHAT MANAGER =================
+// ================= WEBRTC VOICE CHAT MANAGER (MESH TOPOLOGY) =================
 const VoiceChatManager = {
-    peerConnection: null,
+    peerConnections: {}, // Map<seat, RTCPeerConnection>
+    remoteAudios: {},    // Map<seat, HTMLAudioElement>
+    iceCandidatesQueues: {}, // Map<seat, Array<candidate>>
     localStream: null,
     audioContext: null,
     analyser: null,
@@ -2026,7 +2030,6 @@ const VoiceChatManager = {
     isMicMuted: false,
     isDeafened: false,
     isSpeaking: false,
-    iceCandidatesQueue: [],
     rtcConfig: {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
@@ -2050,6 +2053,10 @@ const VoiceChatManager = {
     async ensureLocalStream() {
         if (this.localStream) return this.localStream;
         try {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                console.warn('getUserMedia is not supported or not in a secure context (HTTPS/localhost)');
+                return null;
+            }
             this.localStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     echoCancellation: true,
@@ -2125,139 +2132,158 @@ const VoiceChatManager = {
         }
     },
 
-    async start(isCaller) {
-        if (isSoloMode) {
-            showToast('Voice Chat chỉ hoạt động khi chơi trực tuyến với người thật!');
-            return;
+    createPeerConnection(targetSeat) {
+        this.cleanupPeerConnection(targetSeat);
+
+        const pc = new RTCPeerConnection(this.rtcConfig);
+        this.peerConnections[targetSeat] = pc;
+        this.iceCandidatesQueues[targetSeat] = [];
+
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(track => {
+                pc.addTrack(track, this.localStream);
+            });
         }
 
-        const stream = await this.ensureLocalStream();
-        this.cleanupPeerConnection();
+        pc.ontrack = (event) => {
+            if (event.streams && event.streams[0]) {
+                let audioEl = this.remoteAudios[targetSeat];
+                if (!audioEl) {
+                    audioEl = document.createElement('audio');
+                    audioEl.autoplay = true;
+                    audioEl.playsInline = true;
+                    audioEl.muted = this.isDeafened;
+                    document.body.appendChild(audioEl);
+                    this.remoteAudios[targetSeat] = audioEl;
+                }
+                audioEl.srcObject = event.streams[0];
+                audioEl.play().catch(err => console.warn('Remote audio autoplay waiting for user gesture:', err));
+            }
+        };
+
+        pc.onicecandidate = (event) => {
+            if (event.candidate && socket && gameState.roomCode) {
+                socket.emit('webrtc_ice_candidate', {
+                    roomCode: gameState.roomCode,
+                    targetSeat: targetSeat,
+                    candidate: event.candidate
+                });
+            }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+            console.log(`WebRTC ICE State [Seat ${targetSeat}]:`, pc.iceConnectionState);
+            if (pc.iceConnectionState === 'connected') {
+                showToast(`🎙️ Đã kết nối Voice Chat với ghế ${targetSeat + 1}!`);
+            }
+        };
+
+        return pc;
+    },
+
+    async syncPeers() {
+        if (isSoloMode || !gameState.roomCode) return;
+        const mySeat = gameState.mySeat !== undefined ? gameState.mySeat : 0;
+        const opponents = gameState.opponents || (gameState.opponent ? [gameState.opponent] : []);
+        const activeSeats = new Set();
+
+        for (const opp of opponents) {
+            if (opp && opp.seat !== undefined) {
+                activeSeats.add(opp.seat);
+                // Mesh rule: Higher seat initiates connection to lower seat
+                if (mySeat > opp.seat && !this.peerConnections[opp.seat]) {
+                    await this.initiateVoiceConnection(opp.seat);
+                }
+            }
+        }
+
+        // Cleanup peers that left
+        Object.keys(this.peerConnections).forEach(seatStr => {
+            const seat = parseInt(seatStr, 10);
+            if (!activeSeats.has(seat)) {
+                this.cleanupPeerConnection(seat);
+            }
+        });
+    },
+
+    async initiateVoiceConnection(targetSeat) {
+        if (isSoloMode) return;
+        await this.ensureLocalStream();
 
         try {
-            this.peerConnection = new RTCPeerConnection(this.rtcConfig);
+            const pc = this.createPeerConnection(targetSeat);
+            const offer = await pc.createOffer({ offerToReceiveAudio: true });
+            await pc.setLocalDescription(offer);
 
-            if (stream) {
-                stream.getTracks().forEach(track => {
-                    this.peerConnection.addTrack(track, stream);
+            if (socket && gameState.roomCode) {
+                socket.emit('webrtc_offer', {
+                    roomCode: gameState.roomCode,
+                    targetSeat: targetSeat,
+                    sdp: offer
                 });
-            }
-
-            this.peerConnection.ontrack = (event) => {
-                const remoteAudio = document.getElementById('remoteVoiceAudio');
-                if (remoteAudio && event.streams && event.streams[0]) {
-                    remoteAudio.srcObject = event.streams[0];
-                    remoteAudio.play().catch(err => console.warn('Remote audio autoplay waiting for user gesture:', err));
-                }
-            };
-
-            this.peerConnection.onicecandidate = (event) => {
-                if (event.candidate && socket && gameState.roomCode) {
-                    socket.emit('webrtc_ice_candidate', {
-                        roomCode: gameState.roomCode,
-                        candidate: event.candidate
-                    });
-                }
-            };
-
-            this.peerConnection.oniceconnectionstatechange = () => {
-                console.log('WebRTC ICE Connection State:', this.peerConnection.iceConnectionState);
-                if (this.peerConnection.iceConnectionState === 'connected') {
-                    showToast('🎙️ Đã kết nối Voice Chat với bàn chơi!');
-                }
-            };
-
-            if (isCaller) {
-                const offer = await this.peerConnection.createOffer({
-                    offerToReceiveAudio: true
-                });
-                await this.peerConnection.setLocalDescription(offer);
-                if (socket && gameState.roomCode) {
-                    socket.emit('webrtc_offer', {
-                        roomCode: gameState.roomCode,
-                        sdp: offer
-                    });
-                }
             }
         } catch (err) {
-            console.error('Error starting WebRTC Voice Connection:', err);
+            console.error(`Error starting WebRTC connection to seat ${targetSeat}:`, err);
         }
     },
 
-    async handleOffer(sdp) {
+    async handleOffer(fromSeat, sdp) {
         if (isSoloMode) return;
-        const stream = await this.ensureLocalStream();
-        this.cleanupPeerConnection();
+        await this.ensureLocalStream();
 
         try {
-            this.peerConnection = new RTCPeerConnection(this.rtcConfig);
+            const pc = this.createPeerConnection(fromSeat);
+            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
 
-            if (stream) {
-                stream.getTracks().forEach(track => {
-                    this.peerConnection.addTrack(track, stream);
-                });
+            const queue = this.iceCandidatesQueues[fromSeat] || [];
+            while (queue.length > 0) {
+                const candidate = queue.shift();
+                await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn(e));
             }
 
-            this.peerConnection.ontrack = (event) => {
-                const remoteAudio = document.getElementById('remoteVoiceAudio');
-                if (remoteAudio && event.streams && event.streams[0]) {
-                    remoteAudio.srcObject = event.streams[0];
-                    remoteAudio.play().catch(err => console.warn('Remote audio autoplay waiting for user gesture:', err));
-                }
-            };
-
-            this.peerConnection.onicecandidate = (event) => {
-                if (event.candidate && socket && gameState.roomCode) {
-                    socket.emit('webrtc_ice_candidate', {
-                        roomCode: gameState.roomCode,
-                        candidate: event.candidate
-                    });
-                }
-            };
-
-            await this.peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-
-            while (this.iceCandidatesQueue.length > 0) {
-                const candidate = this.iceCandidatesQueue.shift();
-                await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn(e));
-            }
-
-            const answer = await this.peerConnection.createAnswer();
-            await this.peerConnection.setLocalDescription(answer);
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
 
             if (socket && gameState.roomCode) {
                 socket.emit('webrtc_answer', {
                     roomCode: gameState.roomCode,
+                    targetSeat: fromSeat,
                     sdp: answer
                 });
             }
         } catch (err) {
-            console.error('Error handling WebRTC offer:', err);
+            console.error(`Error handling WebRTC offer from seat ${fromSeat}:`, err);
         }
     },
 
-    async handleAnswer(sdp) {
-        if (!this.peerConnection) return;
+    async handleAnswer(fromSeat, sdp) {
+        const pc = this.peerConnections[fromSeat];
+        if (!pc) return;
         try {
-            await this.peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-            while (this.iceCandidatesQueue.length > 0) {
-                const candidate = this.iceCandidatesQueue.shift();
-                await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn(e));
+            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+            const queue = this.iceCandidatesQueues[fromSeat] || [];
+            while (queue.length > 0) {
+                const candidate = queue.shift();
+                await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn(e));
             }
         } catch (err) {
-            console.error('Error handling WebRTC answer:', err);
+            console.error(`Error handling WebRTC answer from seat ${fromSeat}:`, err);
         }
     },
 
-    async handleCandidate(candidate) {
-        if (!this.peerConnection || !this.peerConnection.remoteDescription) {
-            this.iceCandidatesQueue.push(candidate);
+    async handleCandidate(fromSeat, candidate) {
+        const pc = this.peerConnections[fromSeat];
+        if (!pc || !pc.remoteDescription) {
+            if (!this.iceCandidatesQueues[fromSeat]) {
+                this.iceCandidatesQueues[fromSeat] = [];
+            }
+            this.iceCandidatesQueues[fromSeat].push(candidate);
             return;
         }
         try {
-            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch (err) {
-            console.warn('Error adding ICE candidate:', err);
+            console.warn(`Error adding ICE candidate from seat ${fromSeat}:`, err);
         }
     },
 
@@ -2298,7 +2324,24 @@ const VoiceChatManager = {
         }
 
         if (!this.localStream) {
-            await this.start(gameState.mySeat === 0);
+            const stream = await this.ensureLocalStream();
+            if (stream) {
+                this.isMicMuted = false;
+                // Re-establish and renegotiate all peer connections to transmit newly acquired local audio tracks
+                const activeSeats = new Set();
+                const opponents = gameState.opponents || (gameState.opponent ? [gameState.opponent] : []);
+                opponents.forEach(o => {
+                    if (o && o.seat !== undefined) activeSeats.add(o.seat);
+                });
+                Object.keys(this.peerConnections).forEach(s => activeSeats.add(parseInt(s, 10)));
+
+                for (const seat of activeSeats) {
+                    await this.initiateVoiceConnection(seat);
+                }
+
+                this.updateMicUI();
+                showToast('🎙️ Đã mở Micro');
+            }
             return;
         }
 
@@ -2317,6 +2360,9 @@ const VoiceChatManager = {
 
     toggleDeafen() {
         this.isDeafened = !this.isDeafened;
+        Object.values(this.remoteAudios).forEach(audioEl => {
+            if (audioEl) audioEl.muted = this.isDeafened;
+        });
         const remoteAudio = document.getElementById('remoteVoiceAudio');
         if (remoteAudio) {
             remoteAudio.muted = this.isDeafened;
@@ -2330,7 +2376,7 @@ const VoiceChatManager = {
         const micIcon = document.getElementById('micIcon');
         if (!btnMic || !micIcon) return;
 
-        if (this.isMicMuted) {
+        if (this.isMicMuted || !this.localStream) {
             micIcon.innerText = '🔇';
             btnMic.classList.remove('active');
             btnMic.classList.add('muted');
@@ -2359,14 +2405,22 @@ const VoiceChatManager = {
         }
     },
 
-    cleanupPeerConnection() {
-        if (this.peerConnection) {
+    cleanupPeerConnection(seat) {
+        if (this.peerConnections[seat]) {
             try {
-                this.peerConnection.close();
+                this.peerConnections[seat].close();
             } catch (e) {}
-            this.peerConnection = null;
+            delete this.peerConnections[seat];
         }
-        this.iceCandidatesQueue = [];
+        if (this.remoteAudios[seat]) {
+            try {
+                this.remoteAudios[seat].pause();
+                this.remoteAudios[seat].srcObject = null;
+                this.remoteAudios[seat].remove();
+            } catch (e) {}
+            delete this.remoteAudios[seat];
+        }
+        delete this.iceCandidatesQueues[seat];
     },
 
     stop() {
@@ -2384,12 +2438,11 @@ const VoiceChatManager = {
             this.localStream.getTracks().forEach(t => t.stop());
             this.localStream = null;
         }
-        this.cleanupPeerConnection();
+        Object.keys(this.peerConnections).forEach(seat => {
+            this.cleanupPeerConnection(seat);
+        });
         this.setSpeaking(false);
         this.handleVoiceState({ isSpeaking: false });
-        const remoteAudio = document.getElementById('remoteVoiceAudio');
-        if (remoteAudio) {
-            remoteAudio.srcObject = null;
-        }
+        this.updateMicUI();
     }
 };
